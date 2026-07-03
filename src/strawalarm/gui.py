@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QRadioButton, QSlider, QSpinBox, QSystemTrayIcon, QTimeEdit, QToolButton,
     QVBoxLayout, QWidget)
 
-from . import __version__
+from . import __version__, power
 from .core import Phase, Session, SleepSpec, WakeSpec, fmt_delta
 from .mpris import PROXY_PREFIXES, Player
 
@@ -126,6 +126,13 @@ class MainWindow(QMainWindow):
 
         self.pause_check = QCheckBox("Pause instead of stop (keeps position)")
         form.addRow(self.pause_check)
+
+        self.suspend_check = QCheckBox("Suspend the PC after stopping")
+        if not power.can_suspend():
+            self.suspend_check.setEnabled(False)
+            self.suspend_check.setToolTip("logind reports suspend "
+                                          "is unavailable on this system")
+        form.addRow(self.suspend_check)
         layout.addWidget(self.sleep_group)
 
         # wake group
@@ -165,6 +172,31 @@ class MainWindow(QMainWindow):
         self.fade_in_spin.setSuffix(" s")
         self.fade_in_check.toggled.connect(self.fade_in_spin.setEnabled)
         form.addRow(self.fade_in_check, self.fade_in_spin)
+
+        self.wake_system_check = QCheckBox("Wake the PC from suspend")
+        self.wake_lead_spin = QSpinBox()
+        self.wake_lead_spin.setRange(1, 30)
+        self.wake_lead_spin.setValue(3)
+        self.wake_lead_spin.setSuffix(" min early")
+        if power.wake_backend():
+            self.wake_system_check.setChecked(True)
+        else:
+            self.wake_system_check.setEnabled(False)
+            self.wake_lead_spin.setEnabled(False)
+            self.wake_system_check.setToolTip(
+                "No wake-from-suspend backend found "
+                "(needs KDE PowerDevil or rtcwake)")
+        self.wake_system_check.toggled.connect(self.wake_lead_spin.setEnabled)
+        form.addRow(self.wake_system_check, self.wake_lead_spin)
+
+        self.keep_awake_spin = QSpinBox()
+        self.keep_awake_spin.setRange(0, 240)
+        self.keep_awake_spin.setValue(30)
+        self.keep_awake_spin.setSuffix(" min")
+        self.keep_awake_spin.setSpecialValueText("off")
+        self.keep_awake_spin.setToolTip(
+            "Block sleep for this long after the alarm fires")
+        form.addRow("Keep awake after:", self.keep_awake_spin)
         layout.addWidget(self.wake_group)
 
         # status
@@ -264,7 +296,8 @@ class MainWindow(QMainWindow):
         if self.sleep_group.isChecked():
             fade = self.fade_out_spin.value() \
                 if self.fade_out_check.isChecked() else 0
-            sleep = SleepSpec(fade=fade, pause=self.pause_check.isChecked())
+            sleep = SleepSpec(fade=fade, pause=self.pause_check.isChecked(),
+                              suspend_after=self.suspend_check.isChecked())
             if self.radio_tracks.isChecked():
                 sleep.tracks = self.tracks_spin.value()
             else:
@@ -281,7 +314,10 @@ class MainWindow(QMainWindow):
                 volume=self.volume_slider.value()
                 if self.volume_check.isChecked() else None,
                 fade=self.fade_in_spin.value()
-                if self.fade_in_check.isChecked() else 0)
+                if self.fade_in_check.isChecked() else 0,
+                wake_system=self.wake_system_check.isChecked(),
+                wake_lead=self.wake_lead_spin.value() * 60,
+                keep_awake=self.keep_awake_spin.value() * 60)
 
         self.session = Session(player, sleep=sleep, wake=wake, log=self.log)
         try:

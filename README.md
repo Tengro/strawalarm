@@ -28,6 +28,14 @@ without it, the alarm simply resumes playback.
 - **System tray**: closing the window while a timer is armed hides the
   app to the tray, where it keeps counting down (tooltip shows the
   remaining time; right-click to cancel or quit)
+- **Suspend-aware**: blocks system sleep while your music plays
+  (logind inhibitor), releases the block when it stops — optionally
+  suspending the PC right away — and programs an RTC wake a few
+  minutes before the alarm so a suspended machine wakes up for it
+  (via KDE PowerDevil's scheduleWakeup, no root needed; `rtcwake`
+  fallback elsewhere). After the alarm it keeps the system awake for
+  a configurable window (default 30 min) so it doesn't doze off
+  mid-morning-playlist.
 - No daemon, no config files, no Python dependencies beyond Qt for the
   GUI. Talks to the player through `playerctl` and `busctl`.
 
@@ -71,8 +79,9 @@ strawalarm sleep 1h --pause                # pause instead of stop
 strawalarm wake 07:30 --playlist Morning --volume 40 --fade-in 60
 strawalarm wake +8h --playlist Morning     # relative time
 
-# The full night in one command
-strawalarm sleep 45m --fade 30 --wake 07:30 --playlist Morning \
+# The full night in one command: fade out in 45 min, suspend the PC,
+# wake it at 07:27, fade the Morning playlist in at 07:30
+strawalarm sleep 45m --fade 30 --suspend --wake 07:30 --playlist Morning \
           --volume 40 --fade-in 60
 ```
 
@@ -85,8 +94,12 @@ The CLI runs in the foreground (Ctrl+C cancels). To detach:
 
 ## Notes / known limits
 
-- Timers don't survive machine suspend — meant for an always-on box.
-  Waking the machine itself (RTC alarm) is on the roadmap.
+- Wake-from-suspend needs KDE PowerDevil (any Plasma desktop) or a
+  root-capable `rtcwake`; without either, the alarm still works but
+  can't wake a suspended machine. Hibernation is untested.
+- All timers use absolute wall-clock deadlines, so suspend/resume
+  needs no special handling — the countdown is simply correct when
+  the machine wakes up.
 - Volume control is the player's own volume, not the system mixer.
 - Without `--fade`, `--tracks N` stops the instant track N+1 starts, so
   you may hear a sub-second blip; with a fade it ends cleanly.

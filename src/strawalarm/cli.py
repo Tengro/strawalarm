@@ -44,11 +44,15 @@ def cmd_list(args):
 def build_wake(args) -> WakeSpec:
     return WakeSpec(time_spec=args.time if hasattr(args, "time") else args.wake,
                     playlist=args.playlist, volume=args.volume,
-                    fade=args.fade_in)
+                    fade=args.fade_in,
+                    wake_system=not args.no_wake_system,
+                    wake_lead=args.wake_lead * 60,
+                    keep_awake=args.keep_awake * 60)
 
 
 def cmd_sleep(args):
-    sleep = SleepSpec(tracks=args.tracks, fade=args.fade, pause=args.pause)
+    sleep = SleepSpec(tracks=args.tracks, fade=args.fade, pause=args.pause,
+                      suspend_after=args.suspend)
     if not args.tracks:
         try:
             sleep.seconds = parse_duration(args.duration)
@@ -88,6 +92,14 @@ def add_wake_opts(sp):
                     help="alarm volume 0-100 (default: keep player volume)")
     sp.add_argument("--fade-in", type=int, default=0, metavar="SEC",
                     help="ramp volume up over SEC seconds (default: off)")
+    sp.add_argument("--no-wake-system", action="store_true",
+                    help="don't program an RTC wake-from-suspend")
+    sp.add_argument("--wake-lead", type=int, default=3, metavar="MIN",
+                    help="wake the system MIN minutes before the alarm "
+                         "(default: 3)")
+    sp.add_argument("--keep-awake", type=int, default=30, metavar="MIN",
+                    help="block sleep for MIN minutes after the alarm "
+                         "(default: 30, 0 = off)")
 
 
 def main():
@@ -113,6 +125,8 @@ def main():
                     help="fade out over the last SEC seconds (default: off)")
     ps.add_argument("--pause", action="store_true",
                     help="pause instead of stop (keeps position)")
+    ps.add_argument("--suspend", action="store_true",
+                    help="suspend the PC right after stopping the music")
     ps.add_argument("--wake", metavar="TIME",
                     help="then set an alarm, e.g. 07:30 or +8h")
     add_wake_opts(ps)

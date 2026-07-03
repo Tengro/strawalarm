@@ -17,11 +17,14 @@ import re
 import time
 from dataclasses import dataclass
 
+from . import power
 from .mpris import Player
 
 DEFAULT_ALARM_VOLUME = 0.5
 LAUNCH_TIMEOUT = 30
-LAUNCH_GRACE = 3  # seconds for a freshly started player to settle
+LAUNCH_GRACE = 3       # seconds for a freshly started player to settle
+DEFAULT_WAKE_LEAD = 180    # wake the system this many seconds early
+DEFAULT_KEEP_AWAKE = 1800  # hold the sleep-block this long after the alarm
 
 
 # ---------- parsing helpers ----------
@@ -77,6 +80,7 @@ class SleepSpec:
     tracks: int | None = None    # ... or track-count mode
     fade: int = 0                # fade-out seconds (0 = off)
     pause: bool = False          # pause instead of stop
+    suspend_after: bool = False  # suspend the machine after stopping
 
 
 @dataclass
@@ -85,6 +89,9 @@ class WakeSpec:
     playlist: str | None = None  # name of an open playlist, or None = resume
     volume: int | None = None    # target percent, None = keep player volume
     fade: int = 0                # fade-in seconds (0 = off)
+    wake_system: bool = True     # program an RTC wake before the alarm
+    wake_lead: int = DEFAULT_WAKE_LEAD    # seconds before alarm to wake
+    keep_awake: int = DEFAULT_KEEP_AWAKE  # post-alarm sleep-block (0 = off)
 
 
 class Phase(enum.Enum):
@@ -94,6 +101,7 @@ class Phase(enum.Enum):
     WAKE_WAIT = "wake_wait"
     WAIT_PLAYER = "wait_player"
     FADE_IN = "fade_in"
+    KEEP_AWAKE = "keep_awake"
     DONE = "done"
     ERROR = "error"
 
@@ -123,6 +131,10 @@ class Session:
         self._next_poll = 0.0
         self._launch_deadline = 0.0
         self._player_ready_at = 0.0
+        self.inhibitor = power.Inhibitor()
+        self._wake_cookie = None
+        self._wake_scheduled = False
+        self._keep_awake_deadline = 0.0
 
     # ---------- lifecycle ----------
 
@@ -146,6 +158,8 @@ class Session:
                          f"(at {dt.datetime.now() + dt.timedelta(seconds=secs):%H:%M:%S}).")
             if self.sleep.fade:
                 self.log(f"Will fade out over the last {self.sleep.fade}s.")
+            if self.inhibitor.acquire("Sleep timer running"):
+                self.log("Blocking system sleep while the music plays.")
             self.phase = Phase.SLEEP_WAIT
         else:
             self._arm_wake()
@@ -154,8 +168,16 @@ class Session:
         if self.phase in (Phase.FADE_OUT, Phase.FADE_IN) \
                 and self._prefade_volume is not None:
             self.player.set_volume(self._prefade_volume)
+        self._cleanup_power(clear_wake=True)
         self.phase = Phase.DONE
         self.log("Cancelled.")
+
+    def _cleanup_power(self, clear_wake: bool):
+        self.inhibitor.release()
+        if clear_wake and self._wake_scheduled:
+            power.clear_wakeup(self._wake_cookie)
+            self._wake_scheduled = False
+            self._wake_cookie = None
 
     def tick(self):
         """Advance the state machine. Safe to call every 100-1000 ms."""
@@ -165,6 +187,7 @@ class Session:
             self.error = str(e)
             self.phase = Phase.ERROR
             self.log(f"Error: {e}")
+            self._cleanup_power(clear_wake=True)
 
     @property
     def active(self):
@@ -189,6 +212,8 @@ class Session:
             return ("Waiting for player to start", None)
         if self.phase == Phase.FADE_IN:
             return ("Fading in", self._fade_deadline - now)
+        if self.phase == Phase.KEEP_AWAKE:
+            return ("Keeping system awake for", self._keep_awake_deadline - now)
         if self.phase == Phase.ERROR:
             return (f"Error: {self.error}", None)
         if self.phase == Phase.DONE:
@@ -213,6 +238,11 @@ class Session:
             self._tick_wait_player(now)
         elif self.phase == Phase.FADE_IN:
             self._tick_fade_in(now)
+        elif self.phase == Phase.KEEP_AWAKE:
+            if now >= self._keep_awake_deadline:
+                self.inhibitor.release()
+                self.log("Sleep-block released; normal power settings apply.")
+                self.phase = Phase.DONE
 
     def _tick_duration(self, now):
         fade = min(self.sleep.fade, self.sleep.seconds)
@@ -269,13 +299,20 @@ class Session:
         if self._prefade_volume is not None:
             self.player.set_volume(self._prefade_volume)
         self.log(f"Playback {'paused' if self.sleep.pause else 'stopped'}.")
+        if self.inhibitor.active:
+            self.inhibitor.release()
+            self.log("Sleep-block released; the PC may suspend now.")
         self._after_stop()
 
     def _after_stop(self):
+        self.inhibitor.release()  # no-op if _do_stop already released it
         if self.wake:
             self._arm_wake()
         else:
             self.phase = Phase.DONE
+        if self.sleep and self.sleep.suspend_after:
+            self.log("Suspending the machine now.")
+            power.suspend()
 
     def _arm_wake(self):
         self.wake_at = parse_wake_time(self.wake.time_spec)
@@ -284,6 +321,22 @@ class Session:
             else "resume playback"
         self.log(f"Alarm set for {self.wake_at:%Y-%m-%d %H:%M:%S} "
                  f"(in {fmt_delta(delta)}) — {what}.")
+        if self.wake.wake_system:
+            wake_epoch = int(self.wake_at.timestamp() - self.wake.wake_lead)
+            if wake_epoch > time.time():
+                backend, cookie = power.schedule_wakeup(wake_epoch)
+                if backend:
+                    self._wake_scheduled = True
+                    self._wake_cookie = cookie
+                    self.log(
+                        f"System wake programmed for "
+                        f"{dt.datetime.fromtimestamp(wake_epoch):%H:%M:%S} "
+                        f"({fmt_delta(self.wake.wake_lead)} early, "
+                        f"via {backend}).")
+                else:
+                    self.log("Warning: no wake-from-suspend backend "
+                             "(PowerDevil/rtcwake) — the alarm can't wake "
+                             "a suspended machine.")
         self.phase = Phase.WAKE_WAIT
 
     def _reach_wake_time(self, now):
@@ -319,6 +372,10 @@ class Session:
         return DEFAULT_ALARM_VOLUME
 
     def _begin_alarm(self, now):
+        self._wake_scheduled = False  # RTC alarm consumed (or moot) by now
+        self._wake_cookie = None
+        if self.inhibitor.acquire("Alarm playing"):
+            self.log("Blocking system sleep for the alarm.")
         target = self._alarm_target_volume()
         fade = self.wake.fade
         self.player.set_volume(0.0 if fade else target)
@@ -339,21 +396,36 @@ class Session:
             self.phase = Phase.FADE_IN
             self.log(f"Fading in to {round(target * 100)}% over {fade}s...")
         else:
-            self.phase = Phase.DONE
+            self._finish_alarm()
 
     def _tick_fade_in(self, now):
         span = self._fade_deadline - self._fade_start
         k = min(1.0, (now - self._fade_start) / span) if span else 1.0
         self.player.set_volume(self._fade_target * k)
         if k >= 1.0:
-            self.phase = Phase.DONE
             self.log("Alarm volume reached. Good morning!")
+            self._finish_alarm()
+
+    def _finish_alarm(self):
+        if self.wake.keep_awake > 0 and self.inhibitor.active:
+            self._keep_awake_deadline = time.time() + self.wake.keep_awake
+            self.log(f"Keeping the system awake for "
+                     f"{fmt_delta(self.wake.keep_awake)} "
+                     "(cancel to release early).")
+            self.phase = Phase.KEEP_AWAKE
+        else:
+            self.inhibitor.release()
+            self.phase = Phase.DONE
 
 
 def run_blocking(session: Session, interval: float = 0.25):
     """Drive a session to completion (CLI mode)."""
-    session.start()
-    while session.active:
-        time.sleep(interval)
-        session.tick()
+    try:
+        session.start()
+        while session.active:
+            time.sleep(interval)
+            session.tick()
+    finally:
+        if session.active:  # interrupted — drop blocks and RTC alarm
+            session.cancel()
     return session.phase == Phase.DONE
