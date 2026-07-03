@@ -25,6 +25,9 @@ without it, the alarm simply resumes playback.
   wake; your original volume is restored after the sleep fade
 - **GUI and CLI**: a small Qt app that follows your desktop theme
   (looks native on KDE Plasma), plus a scriptable command line
+- **System tray**: closing the window while a timer is armed hides the
+  app to the tray, where it keeps counting down (tooltip shows the
+  remaining time; right-click to cancel or quit)
 - No daemon, no config files, no Python dependencies beyond Qt for the
   GUI. Talks to the player through `playerctl` and `busctl`.
 
@@ -46,7 +49,7 @@ and adds a launcher ("Strawalarm") to your application menu:
 ./install.sh
 ```
 
-Or with pipx: `pipx install "strawalarm[gui] @ git+https://github.com/tengro/strawalarm"`
+Or with pipx: `pipx install "strawalarm[gui] @ git+https://github.com/Tengro/strawalarm"`
 (then copy `data/strawalarm.desktop` and the icon yourself if you want
 the menu entry).
 

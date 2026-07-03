@@ -5,13 +5,15 @@ import datetime as dt
 import sys
 from importlib import resources
 
+import shiboken6
+
 from PySide6.QtCore import Qt, QTime, QTimer
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
-    QRadioButton, QSlider, QSpinBox, QTimeEdit, QToolButton, QVBoxLayout,
-    QWidget)
+    QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
+    QRadioButton, QSlider, QSpinBox, QSystemTrayIcon, QTimeEdit, QToolButton,
+    QVBoxLayout, QWidget)
 
 from . import __version__
 from .core import Phase, Session, SleepSpec, WakeSpec, fmt_delta
@@ -24,12 +26,55 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.session = None
+        self._quitting = False
         self.timer = QTimer(self)
         self.timer.setInterval(TICK_MS)
         self.timer.timeout.connect(self.on_tick)
         self.setWindowTitle("Strawalarm")
         self.setCentralWidget(self._build_ui())
+        self._build_tray()
         self.refresh_players()
+
+    def _build_tray(self):
+        self.tray = QSystemTrayIcon(app_icon(), self)
+        menu = QMenu(self)
+        menu.addAction("Show/Hide").triggered.connect(self.toggle_window)
+        self.tray_cancel = menu.addAction("Cancel timer")
+        self.tray_cancel.setEnabled(False)
+        self.tray_cancel.triggered.connect(self.cancel_from_tray)
+        menu.addSeparator()
+        menu.addAction("Quit").triggered.connect(self.quit_app)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self.on_tray_activated)
+        self.tray.setToolTip("Strawalarm — idle")
+        self.tray.show()
+
+    def toggle_window(self):
+        self.setVisible(not self.isVisible())
+        if self.isVisible():
+            self.raise_()
+            self.activateWindow()
+
+    def on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.toggle_window()
+
+    def cancel_from_tray(self):
+        if self.session and self.session.active:
+            self.session.cancel()
+            self.finish_session()
+
+    def quit_app(self):
+        if self.session and self.session.active:
+            self.show()
+            answer = QMessageBox.question(
+                self, "Strawalarm",
+                "A timer or alarm is armed. Quit and cancel it?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self.session.cancel()
+        self._quitting = True
+        QApplication.quit()
 
     # ---------- UI construction ----------
 
@@ -254,6 +299,9 @@ class MainWindow(QMainWindow):
         self.session.tick()
         text, countdown = self.session.status()
         self.phase_label.setText(text)
+        self.tray.setToolTip(
+            f"Strawalarm — {text}"
+            + (f" {fmt_delta(countdown)}" if countdown is not None else ""))
         self.countdown_label.setEnabled(True)
         self.countdown_label.setText(
             fmt_delta(countdown) if countdown is not None else "•")
@@ -270,14 +318,30 @@ class MainWindow(QMainWindow):
         self.countdown_label.setEnabled(False)
         self.set_running(False)
         self.session = None
+        self.tray.setToolTip("Strawalarm — idle")
+        if not self.isVisible():
+            self.tray.showMessage("Strawalarm", self.phase_label.text(),
+                                  app_icon(), 5000)
 
     def set_running(self, running):
         for w in (self.player_combo, self.sleep_group, self.wake_group):
             w.setEnabled(not running)
         self.start_btn.setText("Cancel" if running else "Start")
+        self.tray_cancel.setEnabled(running)
 
     def closeEvent(self, event):
+        if self._quitting:
+            event.accept()
+            return
         if self.session and self.session.active:
+            if self.tray.isVisible():  # keep the armed timer alive in the tray
+                self.hide()
+                self.tray.showMessage(
+                    "Strawalarm is still armed",
+                    "Running in the system tray. Click the icon to reopen, "
+                    "right-click to cancel or quit.", app_icon(), 5000)
+                event.ignore()
+                return
             answer = QMessageBox.question(
                 self, "Strawalarm",
                 "A timer or alarm is armed. Quit and cancel it?")
@@ -286,6 +350,7 @@ class MainWindow(QMainWindow):
                 return
             self.session.cancel()
         event.accept()
+        QApplication.quit()
 
 
 def app_icon():
@@ -302,9 +367,22 @@ def main():
     app.setApplicationVersion(__version__)
     app.setDesktopFileName("strawalarm")
     app.setWindowIcon(app_icon())
+    # The window can hide to the tray while a timer is armed, so quitting
+    # is always explicit (closeEvent / quit_app call QApplication.quit()).
+    app.setQuitOnLastWindowClosed(False)
     win = MainWindow()
     win.show()
-    sys.exit(app.exec())
+    rc = app.exec()
+    # Deterministic teardown: force-destroy the C++ objects while the
+    # interpreter is fully alive. Letting PySide's atexit hook destroy
+    # QApplication during Py_Finalize segfaults (Shiboken tears wrappers
+    # down in arbitrary order with the Plasma platform theme loaded).
+    # Plain `del app` is not enough — PySide holds an internal reference.
+    win.hide()
+    win.tray.hide()
+    shiboken6.delete(win)
+    shiboken6.delete(app)
+    sys.exit(rc)
 
 
 if __name__ == "__main__":
