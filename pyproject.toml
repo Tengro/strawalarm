@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strawalarm"
+version = "0.2.0"
+description = "AIMP-style sleep timer and playlist alarm for MPRIS2 media players (Strawberry, VLC, Elisa, ...)"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "tengro" }]
+requires-python = ">=3.10"
+keywords = ["mpris", "sleep-timer", "alarm", "strawberry", "music"]
+classifiers = [
+    "Environment :: X11 Applications :: Qt",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Topic :: Multimedia :: Sound/Audio :: Players",
+]
+# Runtime tools (not pip-installable): playerctl, busctl (systemd).
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6"]
+
+[project.scripts]
+strawalarm = "strawalarm.cli:main"
+strawalarm-gui = "strawalarm.gui:main"
+
+[project.urls]
+Homepage = "https://github.com/tengro/strawalarm"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+strawalarm = ["data/*.svg"]

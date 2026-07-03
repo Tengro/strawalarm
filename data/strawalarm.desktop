@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Strawalarm
+GenericName=Sleep Timer and Music Alarm
+Comment=Stop your music player after a timer and wake up to a playlist (MPRIS2)
+Exec=strawalarm-gui
+Icon=strawalarm
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=sleep;timer;alarm;wake;playlist;mpris;strawberry;music;

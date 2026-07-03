@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0506e"/>
+      <stop offset="1" stop-color="#c62b47"/>
+    </linearGradient>
+  </defs>
+  <!-- bells -->
+  <circle cx="30" cy="26" r="13" fill="url(#body)"/>
+  <circle cx="98" cy="26" r="13" fill="url(#body)"/>
+  <!-- legs -->
+  <rect x="24" y="98" width="10" height="20" rx="5" fill="#c62b47" transform="rotate(30 29 108)"/>
+  <rect x="94" y="98" width="10" height="20" rx="5" fill="#c62b47" transform="rotate(-30 99 108)"/>
+  <!-- clock body -->
+  <circle cx="64" cy="68" r="46" fill="url(#body)"/>
+  <circle cx="64" cy="68" r="36" fill="#fff8f4"/>
+  <!-- ticks -->
+  <g stroke="#c62b47" stroke-width="3" stroke-linecap="round">
+    <line x1="64" y1="38" x2="64" y2="44"/>
+    <line x1="64" y1="92" x2="64" y2="98"/>
+    <line x1="34" y1="68" x2="40" y2="68"/>
+    <line x1="88" y1="68" x2="94" y2="68"/>
+  </g>
+  <!-- musical note as the clock hands -->
+  <g fill="#2b2226" stroke="#2b2226" stroke-linecap="round">
+    <line x1="76" y1="48" x2="76" y2="74" stroke-width="4"/>
+    <ellipse cx="70.5" cy="75.5" rx="7" ry="5.5" transform="rotate(-20 70.5 75.5)"/>
+    <path d="M76 48 q8 3 8 10" fill="none" stroke-width="4"/>
+  </g>
+  <!-- small leaf: the strawberry nod -->
+  <path d="M64 20 q6 -8 14 -6 q-4 8 -14 6" fill="#4faa5e"/>
+</svg>
