@@ -34,7 +34,7 @@ WATCHDOG_KICKS = 3         # max automatic playback restarts
 
 def parse_duration(s: str) -> int:
     """'1h30m', '90m', '45s', '01:30:00', bare number = minutes. -> seconds"""
-    s = s.strip().lower()
+    s = s.strip().lower().replace(" ", "")
     if re.fullmatch(r"\d{1,3}:\d{2}(:\d{2})?", s):
         parts = [int(p) for p in s.split(":")]
         if len(parts) == 2:

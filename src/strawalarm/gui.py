@@ -7,16 +7,17 @@ from importlib import resources
 
 import shiboken6
 
-from PySide6.QtCore import Qt, QTime, QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
-    QLabel, QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QPushButton,
-    QRadioButton, QSlider, QSpinBox, QSystemTrayIcon, QTimeEdit, QToolButton,
-    QVBoxLayout, QWidget)
+    QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QPlainTextEdit,
+    QPushButton, QRadioButton, QSlider, QSpinBox, QSystemTrayIcon,
+    QToolButton, QVBoxLayout, QWidget)
 
 from . import __version__, power
-from .core import Phase, Session, SleepSpec, WakeSpec, fmt_delta
+from .core import (Phase, Session, SleepSpec, WakeSpec, fmt_delta,
+                   parse_duration, parse_wake_time)
 from .mpris import PROXY_PREFIXES, Player
 
 TICK_MS = 250
@@ -101,11 +102,16 @@ class MainWindow(QMainWindow):
         self.sleep_group.setCheckable(True)
         form = QFormLayout(self.sleep_group)
 
-        self.radio_duration = QRadioButton("After a duration")
-        self.duration_edit = QTimeEdit(QTime(1, 0, 0))
-        self.duration_edit.setDisplayFormat("HH:mm:ss")
+        self.radio_duration = QRadioButton("After")
+        self.duration_edit = QLineEdit("1h30m")
+        self.duration_edit.setPlaceholderText("1h30m · 90m · 01:30:00")
         self.radio_duration.setChecked(True)
         form.addRow(self.radio_duration, self.duration_edit)
+
+        self.radio_sleep_at = QRadioButton("At")
+        self.sleep_at_edit = QLineEdit()
+        self.sleep_at_edit.setPlaceholderText("23:45 or 23:45:30")
+        form.addRow(self.radio_sleep_at, self.sleep_at_edit)
 
         self.radio_tracks = QRadioButton("After tracks")
         self.tracks_spin = QSpinBox()
@@ -113,7 +119,16 @@ class MainWindow(QMainWindow):
         self.tracks_spin.setValue(3)
         self.tracks_spin.setSuffix(" track(s)")
         form.addRow(self.radio_tracks, self.tracks_spin)
-        self.radio_duration.toggled.connect(self._sync_sleep_mode)
+
+        self.sleep_hint = QLabel()
+        self.sleep_hint.setEnabled(False)  # muted, theme-correct grey
+        form.addRow(self.sleep_hint)
+        for w in (self.radio_duration, self.radio_sleep_at,
+                  self.radio_tracks):
+            w.toggled.connect(self._sync_sleep_mode)
+        for w in (self.duration_edit, self.sleep_at_edit):
+            w.textChanged.connect(self._update_sleep_hint)
+        self.tracks_spin.valueChanged.connect(self._update_sleep_hint)
 
         self.fade_out_check = QCheckBox("Fade out over")
         self.fade_out_check.setChecked(True)
@@ -140,9 +155,24 @@ class MainWindow(QMainWindow):
         self.wake_group.setCheckable(True)
         form = QFormLayout(self.wake_group)
 
-        self.wake_edit = QTimeEdit(QTime(7, 30))
-        self.wake_edit.setDisplayFormat("HH:mm:ss")
-        form.addRow("Wake at:", self.wake_edit)
+        self.radio_wake_at = QRadioButton("At")
+        self.wake_at_edit = QLineEdit("07:30")
+        self.wake_at_edit.setPlaceholderText("07:30 or 07:30:00")
+        self.radio_wake_at.setChecked(True)
+        form.addRow(self.radio_wake_at, self.wake_at_edit)
+
+        self.radio_wake_after = QRadioButton("After")
+        self.wake_after_edit = QLineEdit("8h")
+        self.wake_after_edit.setPlaceholderText("8h · 7h30m · 450")
+        form.addRow(self.radio_wake_after, self.wake_after_edit)
+
+        self.wake_hint = QLabel()
+        self.wake_hint.setEnabled(False)
+        form.addRow(self.wake_hint)
+        for w in (self.radio_wake_at, self.radio_wake_after):
+            w.toggled.connect(self._sync_wake_mode)
+        for w in (self.wake_at_edit, self.wake_after_edit):
+            w.textChanged.connect(self._update_wake_hint)
 
         self.playlist_combo = QComboBox()
         self.playlist_combo.setToolTip(
@@ -225,12 +255,55 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.log_view)
 
         self._sync_sleep_mode()
+        self._sync_wake_mode()
         return root
 
     def _sync_sleep_mode(self):
-        dur = self.radio_duration.isChecked()
-        self.duration_edit.setEnabled(dur)
-        self.tracks_spin.setEnabled(not dur)
+        self.duration_edit.setEnabled(self.radio_duration.isChecked())
+        self.sleep_at_edit.setEnabled(self.radio_sleep_at.isChecked())
+        self.tracks_spin.setEnabled(self.radio_tracks.isChecked())
+        self._update_sleep_hint()
+
+    def _sync_wake_mode(self):
+        self.wake_at_edit.setEnabled(self.radio_wake_at.isChecked())
+        self.wake_after_edit.setEnabled(self.radio_wake_after.isChecked())
+        self._update_wake_hint()
+
+    @staticmethod
+    def _fmt_target(t: dt.datetime) -> str:
+        day = "today" if t.date() == dt.date.today() else "tomorrow"
+        left = (t - dt.datetime.now()).total_seconds()
+        return f"{day} at {t:%H:%M:%S} (in {fmt_delta(left)})"
+
+    def _update_sleep_hint(self):
+        try:
+            if self.radio_tracks.isChecked():
+                n = self.tracks_spin.value()
+                hint = f"→ stops when track {n} ends (current track is #1)"
+            elif self.radio_duration.isChecked():
+                secs = parse_duration(self.duration_edit.text())
+                t = dt.datetime.now() + dt.timedelta(seconds=secs)
+                hint = f"→ stops {self._fmt_target(t)}"
+            else:
+                t = parse_wake_time(self.sleep_at_edit.text())
+                hint = f"→ stops {self._fmt_target(t)}"
+        except ValueError:
+            hint = "→ enter a time like 23:45 or a duration like 1h30m"
+        self.sleep_hint.setText(hint)
+
+    def _update_wake_hint(self):
+        try:
+            if self.radio_wake_at.isChecked():
+                t = parse_wake_time(self.wake_at_edit.text())
+            else:
+                secs = parse_duration(self.wake_after_edit.text())
+                if secs >= 24 * 3600:
+                    raise ValueError("under 24h please")
+                t = dt.datetime.now() + dt.timedelta(seconds=secs)
+            hint = f"→ alarm {self._fmt_target(t)}"
+        except ValueError:
+            hint = "→ enter a time like 07:30 or a duration like 8h"
+        self.wake_hint.setText(hint)
 
     # ---------- data ----------
 
@@ -293,23 +366,39 @@ class MainWindow(QMainWindow):
             return
 
         sleep = wake = None
-        if self.sleep_group.isChecked():
-            fade = self.fade_out_spin.value() \
-                if self.fade_out_check.isChecked() else 0
-            sleep = SleepSpec(fade=fade, pause=self.pause_check.isChecked(),
-                              suspend_after=self.suspend_check.isChecked())
-            if self.radio_tracks.isChecked():
-                sleep.tracks = self.tracks_spin.value()
-            else:
-                t = self.duration_edit.time()
-                sleep.seconds = t.hour() * 3600 + t.minute() * 60 + t.second()
-                if sleep.seconds == 0:
-                    QMessageBox.warning(self, "Strawalarm",
-                                        "Sleep duration is zero.")
-                    return
+        try:
+            if self.sleep_group.isChecked():
+                fade = self.fade_out_spin.value() \
+                    if self.fade_out_check.isChecked() else 0
+                sleep = SleepSpec(fade=fade,
+                                  pause=self.pause_check.isChecked(),
+                                  suspend_after=self.suspend_check.isChecked())
+                if self.radio_tracks.isChecked():
+                    sleep.tracks = self.tracks_spin.value()
+                elif self.radio_duration.isChecked():
+                    sleep.seconds = parse_duration(self.duration_edit.text())
+                else:
+                    t = parse_wake_time(self.sleep_at_edit.text())
+                    sleep.seconds = max(
+                        1, int((t - dt.datetime.now()).total_seconds()))
+                if not sleep.tracks and sleep.seconds == 0:
+                    raise ValueError("Sleep duration is zero.")
+            if self.wake_group.isChecked():
+                if self.radio_wake_at.isChecked():
+                    time_spec = self.wake_at_edit.text().strip()
+                    parse_wake_time(time_spec)  # validate now, arm later
+                else:
+                    secs = parse_duration(self.wake_after_edit.text())
+                    if secs >= 24 * 3600:
+                        raise ValueError("Wake delay must be under 24 hours.")
+                    target = dt.datetime.now() + dt.timedelta(seconds=secs)
+                    time_spec = target.strftime("%H:%M:%S")
+        except ValueError as e:
+            QMessageBox.warning(self, "Strawalarm", str(e))
+            return
         if self.wake_group.isChecked():
             wake = WakeSpec(
-                time_spec=self.wake_edit.time().toString("HH:mm:ss"),
+                time_spec=time_spec,
                 playlist=self.playlist_combo.currentData(),
                 volume=self.volume_slider.value()
                 if self.volume_check.isChecked() else None,
