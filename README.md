@@ -3,6 +3,8 @@
 **Sleep timer and music alarm for Linux — the AIMP "stop after / wake up
 with playlist" feature, for any MPRIS2 player.**
 
+![Strawalarm GUI](docs/screenshot.png)
+
 If you searched for "AIMP alarm on Linux": this is that. Fall asleep to
 your music (playback stops after a timer or a number of tracks, with a
 gentle fade-out), and wake up to a *different* playlist at a set time,
@@ -18,9 +20,15 @@ without it, the alarm simply resumes playback.
 
 - **Sleep timer**: stop or pause after a duration (`1h30m`) or after N
   tracks (the fade-out is timed to end exactly with the last track)
-- **Alarm**: at a given time, switch to one of the player's open
-  playlists, set the volume, and play — relaunching the player first if
-  you closed it
+- **Alarm**: at a given time (or after a duration), switch to one of
+  the player's open playlists, set the volume, and play — relaunching
+  the player first if you closed it
+- **Snooze**: a button (and tray action) in the GUI; in the CLI just
+  press Enter on a ringing alarm (or send `SIGUSR1`). Pauses the music
+  and re-fires after a configurable interval (default 10 min)
+- **Recurring alarms**: pick weekdays (GUI buttons or
+  `--days mon,wed,fri` / `weekdays` / `weekend` / `daily`) and an
+  alarm-only session re-arms itself after each firing
 - **Fades**: smooth volume fade-out into sleep, fade-in from silence on
   wake; your original volume is restored after the sleep fade
 - **GUI and CLI**: a small Qt app that follows your desktop theme
@@ -78,6 +86,8 @@ strawalarm sleep 1h --pause                # pause instead of stop
 # Alarm
 strawalarm wake 07:30 --playlist Morning --volume 40 --fade-in 60
 strawalarm wake +8h --playlist Morning     # relative time
+strawalarm wake 07:30 --playlist Morning --days weekdays  # recurring
+# while it rings: press Enter to snooze (--snooze MIN, default 10)
 
 # The full night in one command: fade out in 45 min, suspend the PC,
 # wake it at 07:27, fade the Morning playlist in at 07:30

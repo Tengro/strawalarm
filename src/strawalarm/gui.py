@@ -16,8 +16,9 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget)
 
 from . import __version__, power
-from .core import (Phase, Session, SleepSpec, WakeSpec, fmt_delta,
-                   parse_duration, parse_wake_time)
+from .core import (SNOOZABLE, Phase, Session, SleepSpec, WakeSpec,
+                   fmt_delta, next_occurrence, parse_duration,
+                   parse_wake_time)
 from .mpris import PROXY_PREFIXES, Player
 
 TICK_MS = 250
@@ -40,6 +41,9 @@ class MainWindow(QMainWindow):
         self.tray = QSystemTrayIcon(app_icon(), self)
         menu = QMenu(self)
         menu.addAction("Show/Hide").triggered.connect(self.toggle_window)
+        self.tray_snooze = menu.addAction("Snooze")
+        self.tray_snooze.setEnabled(False)
+        self.tray_snooze.triggered.connect(self.do_snooze)
         self.tray_cancel = menu.addAction("Cancel timer")
         self.tray_cancel.setEnabled(False)
         self.tray_cancel.triggered.connect(self.cancel_from_tray)
@@ -64,6 +68,10 @@ class MainWindow(QMainWindow):
         if self.session and self.session.active:
             self.session.cancel()
             self.finish_session()
+
+    def do_snooze(self):
+        if self.session:
+            self.session.snooze()
 
     def quit_app(self):
         if self.session and self.session.active:
@@ -166,6 +174,23 @@ class MainWindow(QMainWindow):
         self.wake_after_edit.setPlaceholderText("8h · 7h30m · 450")
         form.addRow(self.radio_wake_after, self.wake_after_edit)
 
+        day_row = QHBoxLayout()
+        day_row.setSpacing(2)
+        self.day_buttons = []
+        for name in ("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"):
+            b = QToolButton()
+            b.setText(name)
+            b.setCheckable(True)
+            b.toggled.connect(self._update_wake_hint)
+            day_row.addWidget(b)
+            self.day_buttons.append(b)
+        day_row.addStretch()
+        repeat_label = QLabel("Repeat on:")
+        repeat_label.setToolTip(
+            "Pick days to make an alarm-only session recurring; "
+            "no days = one-shot")
+        form.addRow(repeat_label, day_row)
+
         self.wake_hint = QLabel()
         self.wake_hint.setEnabled(False)
         form.addRow(self.wake_hint)
@@ -227,6 +252,12 @@ class MainWindow(QMainWindow):
         self.keep_awake_spin.setToolTip(
             "Block sleep for this long after the alarm fires")
         form.addRow("Keep awake after:", self.keep_awake_spin)
+
+        self.snooze_spin = QSpinBox()
+        self.snooze_spin.setRange(1, 60)
+        self.snooze_spin.setValue(10)
+        self.snooze_spin.setSuffix(" min")
+        form.addRow("Snooze for:", self.snooze_spin)
         layout.addWidget(self.wake_group)
 
         # status
@@ -242,11 +273,18 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.phase_label)
         layout.addWidget(self.countdown_label)
 
-        # start/cancel
+        # start/cancel + snooze
+        btn_row = QHBoxLayout()
         self.start_btn = QPushButton("Start")
         self.start_btn.setMinimumHeight(40)
         self.start_btn.clicked.connect(self.on_start_cancel)
-        layout.addWidget(self.start_btn)
+        btn_row.addWidget(self.start_btn, 2)
+        self.snooze_btn = QPushButton("Snooze")
+        self.snooze_btn.setMinimumHeight(40)
+        self.snooze_btn.setEnabled(False)
+        self.snooze_btn.clicked.connect(self.do_snooze)
+        btn_row.addWidget(self.snooze_btn, 1)
+        layout.addLayout(btn_row)
 
         # log
         self.log_view = QPlainTextEdit()
@@ -265,9 +303,17 @@ class MainWindow(QMainWindow):
         self._update_sleep_hint()
 
     def _sync_wake_mode(self):
-        self.wake_at_edit.setEnabled(self.radio_wake_at.isChecked())
-        self.wake_after_edit.setEnabled(self.radio_wake_after.isChecked())
+        at_mode = self.radio_wake_at.isChecked()
+        self.wake_at_edit.setEnabled(at_mode)
+        self.wake_after_edit.setEnabled(not at_mode)
+        for b in self.day_buttons:  # repeating needs a fixed clock time
+            b.setEnabled(at_mode)
         self._update_wake_hint()
+
+    def _selected_days(self):
+        days = tuple(i for i, b in enumerate(self.day_buttons)
+                     if b.isChecked())
+        return days if days and self.radio_wake_at.isChecked() else None
 
     @staticmethod
     def _fmt_target(t: dt.datetime) -> str:
@@ -293,14 +339,18 @@ class MainWindow(QMainWindow):
 
     def _update_wake_hint(self):
         try:
+            days = self._selected_days()
             if self.radio_wake_at.isChecked():
-                t = parse_wake_time(self.wake_at_edit.text())
+                t = next_occurrence(self.wake_at_edit.text(), days)
             else:
                 secs = parse_duration(self.wake_after_edit.text())
                 if secs >= 24 * 3600:
                     raise ValueError("under 24h please")
                 t = dt.datetime.now() + dt.timedelta(seconds=secs)
-            hint = f"→ alarm {self._fmt_target(t)}"
+            when = f"{t:%a} " if days else ""
+            left = (t - dt.datetime.now()).total_seconds()
+            hint = (f"→ alarm {when}{t:%H:%M:%S} (in {fmt_delta(left)})"
+                    + (" · repeats" if days else ""))
         except ValueError:
             hint = "→ enter a time like 07:30 or a duration like 8h"
         self.wake_hint.setText(hint)
@@ -406,7 +456,9 @@ class MainWindow(QMainWindow):
                 if self.fade_in_check.isChecked() else 0,
                 wake_system=self.wake_system_check.isChecked(),
                 wake_lead=self.wake_lead_spin.value() * 60,
-                keep_awake=self.keep_awake_spin.value() * 60)
+                keep_awake=self.keep_awake_spin.value() * 60,
+                snooze=self.snooze_spin.value() * 60,
+                weekdays=self._selected_days())
 
         self.session = Session(player, sleep=sleep, wake=wake, log=self.log)
         try:
@@ -430,7 +482,21 @@ class MainWindow(QMainWindow):
         self.countdown_label.setEnabled(True)
         self.countdown_label.setText(
             fmt_delta(countdown) if countdown is not None else "•")
+        snoozable = self.session.phase in SNOOZABLE
+        self.snooze_btn.setEnabled(snoozable)
+        self.tray_snooze.setEnabled(snoozable)
         if not self.session.active:
+            s = self.session
+            if (s.phase == Phase.DONE and not s.cancelled and s.wake
+                    and s.wake.weekdays and not s.sleep):
+                self.log("Recurring alarm — re-arming for the next "
+                         "scheduled day.")
+                self.session = Session(s.player, wake=s.wake, log=self.log)
+                try:
+                    self.session.start()
+                    return
+                except (RuntimeError, LookupError, ValueError) as e:
+                    self.log(f"Error re-arming: {e}")
             self.finish_session()
 
     def finish_session(self):
@@ -453,6 +519,9 @@ class MainWindow(QMainWindow):
             w.setEnabled(not running)
         self.start_btn.setText("Cancel" if running else "Start")
         self.tray_cancel.setEnabled(running)
+        if not running:
+            self.snooze_btn.setEnabled(False)
+            self.tray_snooze.setEnabled(False)
 
     def closeEvent(self, event):
         if self._quitting:

@@ -2,11 +2,14 @@
 
 import argparse
 import datetime as dt
+import select
 import signal
 import sys
+import time
 
 from . import __version__
-from .core import Session, SleepSpec, WakeSpec, parse_duration, run_blocking
+from .core import (SNOOZABLE, WEEKDAY_NAMES, Phase, Session, SleepSpec,
+                   WakeSpec, parse_duration)
 from .mpris import Player
 
 
@@ -41,13 +44,31 @@ def cmd_list(args):
             print("  (no MPRIS playlist support)")
 
 
+def parse_days(s: str) -> tuple:
+    shortcuts = {"daily": (0, 1, 2, 3, 4, 5, 6),
+                 "weekdays": (0, 1, 2, 3, 4), "weekend": (5, 6)}
+    s = s.strip().lower()
+    if s in shortcuts:
+        return shortcuts[s]
+    days = set()
+    for part in s.split(","):
+        key = part.strip()[:3]
+        if key not in WEEKDAY_NAMES:
+            sys.exit(f'Unknown day "{part.strip()}" '
+                     f"(use mon..sun, daily, weekdays or weekend).")
+        days.add(WEEKDAY_NAMES.index(key))
+    return tuple(sorted(days))
+
+
 def build_wake(args) -> WakeSpec:
     return WakeSpec(time_spec=args.time if hasattr(args, "time") else args.wake,
                     playlist=args.playlist, volume=args.volume,
                     fade=args.fade_in,
                     wake_system=not args.no_wake_system,
                     wake_lead=args.wake_lead * 60,
-                    keep_awake=args.keep_awake * 60)
+                    keep_awake=args.keep_awake * 60,
+                    snooze=args.snooze * 60,
+                    weekdays=parse_days(args.days) if args.days else None)
 
 
 def cmd_sleep(args):
@@ -63,15 +84,39 @@ def cmd_sleep(args):
 
 
 def cmd_wake(args):
-    run(Session(pick_player(args), wake=build_wake(args), log=log))
+    spec = build_wake(args)
+    player = pick_player(args)
+    while True:
+        session = Session(player, wake=spec, log=log)
+        run(session)
+        if session.cancelled or not spec.weekdays:
+            break
+        log("Recurring alarm — re-arming for the next scheduled day.")
 
 
 def run(session):
+    """Drive a session; Enter snoozes a ringing alarm, SIGUSR1 too."""
+    signal.signal(signal.SIGUSR1, lambda *_: session.snooze())
+    hinted = False
     try:
-        ok = run_blocking(session)
+        session.start()
+        while session.active:
+            time.sleep(0.25)
+            session.tick()
+            if session.phase in SNOOZABLE and sys.stdin.isatty():
+                if not hinted:
+                    hinted = True
+                    log("Press Enter to snooze, Ctrl+C to stop.")
+                ready, _, _ = select.select([sys.stdin], [], [], 0)
+                if ready:
+                    sys.stdin.readline()
+                    session.snooze()
     except (RuntimeError, LookupError, ValueError) as e:
         sys.exit(str(e))
-    if not ok:
+    finally:
+        if session.active:
+            session.cancel()
+    if session.phase == Phase.ERROR:
         sys.exit(1)
 
 
@@ -100,6 +145,12 @@ def add_wake_opts(sp):
     sp.add_argument("--keep-awake", type=int, default=30, metavar="MIN",
                     help="block sleep for MIN minutes after the alarm "
                          "(default: 30, 0 = off)")
+    sp.add_argument("--snooze", type=int, default=10, metavar="MIN",
+                    help="snooze interval when you press Enter on a "
+                         "ringing alarm (default: 10)")
+    sp.add_argument("--days", metavar="LIST",
+                    help="repeat the alarm on these days: mon,wed,fri / "
+                         "daily / weekdays / weekend")
 
 
 def main():

@@ -1,3 +1,3 @@
 """strawalarm — sleep timer and playlist alarm for MPRIS2 media players."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

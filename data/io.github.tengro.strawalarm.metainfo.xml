@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.tengro.strawalarm</id>
+  <name>Strawalarm</name>
+  <summary>Sleep timer and music alarm for MPRIS2 players</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.tengro">
+    <name>Tengro</name>
+  </developer>
+  <description>
+    <p>
+      Fall asleep to your music and wake up to a different playlist —
+      the classic AIMP sleep-timer/alarm workflow, for any Linux media
+      player that speaks MPRIS2 (Strawberry, VLC, Elisa, ...).
+    </p>
+    <p>
+      Playback stops after a duration or a number of tracks with a
+      gentle fade-out; the machine may suspend and is woken again by an
+      RTC alarm; at wake time one of the player's open playlists fades
+      in from silence. Includes snooze, recurring weekday alarms, a
+      system-tray countdown and a scriptable command-line interface.
+    </p>
+  </description>
+  <launchable type="desktop-id">strawalarm.desktop</launchable>
+  <url type="homepage">https://github.com/Tengro/strawalarm</url>
+  <url type="bugtracker">https://github.com/Tengro/strawalarm/issues</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/Tengro/strawalarm/master/docs/screenshot.png</image>
+      <caption>Sleep timer and alarm configuration</caption>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.6.0" date="2026-07-04"/>
+  </releases>
+</component>

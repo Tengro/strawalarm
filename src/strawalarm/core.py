@@ -70,9 +70,26 @@ def parse_wake_time(s: str, base: dt.datetime | None = None) -> dt.datetime:
 
 def fmt_delta(seconds: float) -> str:
     seconds = max(0, int(seconds))
-    h, rem = divmod(seconds, 3600)
+    d, rem = divmod(seconds, 86400)
+    h, rem = divmod(rem, 3600)
     m, s = divmod(rem, 60)
-    return f"{h}:{m:02d}:{s:02d}"
+    return (f"{d}d " if d else "") + f"{h}:{m:02d}:{s:02d}"
+
+
+WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def next_occurrence(spec: str, weekdays=None,
+                    base: dt.datetime | None = None) -> dt.datetime:
+    """Next datetime matching the time spec, optionally constrained to a
+    set of weekdays (0 = Monday). Relative specs ('+8h') ignore weekdays."""
+    t = parse_wake_time(spec, base)
+    if weekdays and not spec.strip().startswith("+"):
+        for _ in range(7):
+            if t.weekday() in weekdays:
+                break
+            t += dt.timedelta(days=1)
+    return t
 
 
 # ---------- specs ----------
@@ -95,6 +112,8 @@ class WakeSpec:
     wake_system: bool = True     # program an RTC wake before the alarm
     wake_lead: int = DEFAULT_WAKE_LEAD    # seconds before alarm to wake
     keep_awake: int = DEFAULT_KEEP_AWAKE  # post-alarm sleep-block (0 = off)
+    snooze: int = 600            # snooze interval in seconds
+    weekdays: tuple | None = None  # restrict "at" alarms to weekdays (0=Mon)
 
 
 class Phase(enum.Enum):
@@ -105,8 +124,12 @@ class Phase(enum.Enum):
     WAIT_PLAYER = "wait_player"
     FADE_IN = "fade_in"
     KEEP_AWAKE = "keep_awake"
+    SNOOZE = "snooze"
     DONE = "done"
     ERROR = "error"
+
+
+SNOOZABLE = (Phase.FADE_IN, Phase.KEEP_AWAKE)
 
 
 class Session:
@@ -143,6 +166,8 @@ class Session:
         self._watchdog_until = 0.0
         self._watchdog_next = 0.0
         self._watchdog_kicks = 0
+        self._snooze_deadline = 0.0
+        self.cancelled = False
 
     # ---------- lifecycle ----------
 
@@ -177,8 +202,21 @@ class Session:
                 and self._prefade_volume is not None:
             self.player.set_volume(self._prefade_volume)
         self._cleanup_power(clear_wake=True)
+        self.cancelled = True
         self.phase = Phase.DONE
         self.log("Cancelled.")
+
+    def snooze(self) -> bool:
+        """Pause the ringing alarm and re-fire after wake.snooze seconds."""
+        if self.phase not in SNOOZABLE:
+            return False
+        self.player.pause()
+        self._watchdog_until = 0.0  # don't fight the snooze
+        self._snooze_deadline = time.time() + self.wake.snooze
+        self.phase = Phase.SNOOZE
+        self.log(f"Snoozed — alarm again at "
+                 f"{dt.datetime.fromtimestamp(self._snooze_deadline):%H:%M:%S}.")
+        return True
 
     def _cleanup_power(self, clear_wake: bool):
         self.inhibitor.release()
@@ -222,6 +260,8 @@ class Session:
             return ("Fading in", self._fade_deadline - now)
         if self.phase == Phase.KEEP_AWAKE:
             return ("Keeping system awake for", self._keep_awake_deadline - now)
+        if self.phase == Phase.SNOOZE:
+            return ("Snoozing — alarm again in", self._snooze_deadline - now)
         if self.phase == Phase.ERROR:
             return (f"Error: {self.error}", None)
         if self.phase == Phase.DONE:
@@ -262,6 +302,9 @@ class Session:
                 self.inhibitor.release()
                 self.log("Sleep-block released; normal power settings apply.")
                 self.phase = Phase.DONE
+        elif self.phase == Phase.SNOOZE:
+            if now >= self._snooze_deadline:
+                self._begin_alarm(now, resume_only=True)
 
     def _tick_watchdog(self, now):
         """For a short window after the alarm starts, make sure playback
@@ -348,11 +391,12 @@ class Session:
             power.suspend()
 
     def _arm_wake(self):
-        self.wake_at = parse_wake_time(self.wake.time_spec)
+        self.wake_at = next_occurrence(self.wake.time_spec,
+                                       self.wake.weekdays)
         delta = self.wake_at.timestamp() - time.time()
         what = f'playlist "{self.wake.playlist}"' if self.wake.playlist \
             else "resume playback"
-        self.log(f"Alarm set for {self.wake_at:%Y-%m-%d %H:%M:%S} "
+        self.log(f"Alarm set for {self.wake_at:%a %Y-%m-%d %H:%M:%S} "
                  f"(in {fmt_delta(delta)}) — {what}.")
         if self.wake.wake_system:
             wake_epoch = int(self.wake_at.timestamp() - self.wake.wake_lead)
@@ -404,15 +448,17 @@ class Session:
                 return v
         return DEFAULT_ALARM_VOLUME
 
-    def _begin_alarm(self, now):
+    def _begin_alarm(self, now, resume_only=False):
         self._wake_scheduled = False  # RTC alarm consumed (or moot) by now
         self._wake_cookie = None
+        self._watchdog_kicks = 0
         if self.inhibitor.acquire("Alarm playing"):
             self.log("Blocking system sleep for the alarm.")
         target = self._alarm_target_volume()
         fade = self.wake.fade
         self.player.set_volume(0.0 if fade else target)
-        if self.wake.playlist and self.player.has_playlists():
+        if not resume_only and self.wake.playlist \
+                and self.player.has_playlists():
             path, name = self.player.find_playlist(self.wake.playlist)
             self.player.activate_playlist(path)
             self.log(f'Wake up! Playing "{name}".')
