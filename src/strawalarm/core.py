@@ -25,6 +25,9 @@ LAUNCH_TIMEOUT = 30
 LAUNCH_GRACE = 3       # seconds for a freshly started player to settle
 DEFAULT_WAKE_LEAD = 180    # wake the system this many seconds early
 DEFAULT_KEEP_AWAKE = 1800  # hold the sleep-block this long after the alarm
+RESUME_SETTLE = 12         # audio-stack grace after a suspend/resume jump
+WATCHDOG_WINDOW = 45       # re-play window after the alarm starts
+WATCHDOG_KICKS = 3         # max automatic playback restarts
 
 
 # ---------- parsing helpers ----------
@@ -135,6 +138,11 @@ class Session:
         self._wake_cookie = None
         self._wake_scheduled = False
         self._keep_awake_deadline = 0.0
+        self._last_tick = 0.0
+        self._settle_until = 0.0
+        self._watchdog_until = 0.0
+        self._watchdog_next = 0.0
+        self._watchdog_kicks = 0
 
     # ---------- lifecycle ----------
 
@@ -224,6 +232,15 @@ class Session:
 
     def _tick(self):
         now = time.time()
+        if self._last_tick and now - self._last_tick > 30 \
+                and self.phase == Phase.WAKE_WAIT:
+            # The machine just resumed from suspend. If the alarm is due,
+            # give PipeWire & friends a moment before poking the player.
+            self._settle_until = now + RESUME_SETTLE
+            self.log(f"System resumed (clock jumped "
+                     f"{fmt_delta(now - self._last_tick)}); letting audio "
+                     f"settle for {RESUME_SETTLE}s.")
+        self._last_tick = now
         if self.phase == Phase.SLEEP_WAIT:
             if self.sleep.tracks:
                 self._tick_tracks(now)
@@ -232,17 +249,33 @@ class Session:
         elif self.phase == Phase.FADE_OUT:
             self._tick_fade_out(now)
         elif self.phase == Phase.WAKE_WAIT:
-            if now >= self.wake_at.timestamp():
+            if now >= self.wake_at.timestamp() and now >= self._settle_until:
                 self._reach_wake_time(now)
         elif self.phase == Phase.WAIT_PLAYER:
             self._tick_wait_player(now)
         elif self.phase == Phase.FADE_IN:
             self._tick_fade_in(now)
+            self._tick_watchdog(now)
         elif self.phase == Phase.KEEP_AWAKE:
+            self._tick_watchdog(now)
             if now >= self._keep_awake_deadline:
                 self.inhibitor.release()
                 self.log("Sleep-block released; normal power settings apply.")
                 self.phase = Phase.DONE
+
+    def _tick_watchdog(self, now):
+        """For a short window after the alarm starts, make sure playback
+        actually sticks — a player poked right after resume can start,
+        hit a half-initialized audio device, and pause itself."""
+        if now >= self._watchdog_until or now < self._watchdog_next \
+                or self._watchdog_kicks >= WATCHDOG_KICKS:
+            return
+        self._watchdog_next = now + 3
+        if self.player.status() != "Playing":
+            self._watchdog_kicks += 1
+            self.log(f"Player stopped unexpectedly — restarting playback "
+                     f"({self._watchdog_kicks}/{WATCHDOG_KICKS}).")
+            self.player.play()
 
     def _tick_duration(self, now):
         fade = min(self.sleep.fade, self.sleep.seconds)
@@ -388,6 +421,8 @@ class Session:
             self.log("Wake up! Resuming playback.")
         if self.player.status() != "Playing":
             self.player.play()
+        self._watchdog_until = now + (fade or 0) + WATCHDOG_WINDOW
+        self._watchdog_next = now + 3
         if fade:
             self._fade_start = now
             self._fade_deadline = now + fade

@@ -52,8 +52,11 @@ class Inhibitor:
             return True
         if not shutil.which("systemd-inhibit"):
             return False
+        # "sleep" only: blocks suspend/hibernate but leaves the idle chain
+        # (screen dimming, screen-off) alone — the display should still
+        # fade while the sleep-timer music plays.
         self._proc = subprocess.Popen(
-            ["systemd-inhibit", "--what=sleep:idle", "--who=Strawalarm",
+            ["systemd-inhibit", "--what=sleep", "--who=Strawalarm",
              f"--why={why}", "--mode=block", "sleep", "infinity"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             preexec_fn=_die_with_parent)
@@ -69,9 +72,32 @@ class Inhibitor:
         self._proc = None
 
 
+CAP_WAKE_ALARM = 35  # capability bit, include/uapi/linux/capability.h
+
+
+def _powerdevil_can_wake() -> bool:
+    """PowerDevil's scheduleWakeup only truly wakes the machine if its
+    process holds CAP_WAKE_ALARM (effective). Some distros ship the
+    binary without the file capability, in which case the API accepts
+    cookies but the RTC never gets armed — treat that as unavailable."""
+    pid = _run(["pidof", "org_kde_powerdevil"])
+    if not pid:
+        return False
+    try:
+        with open(f"/proc/{pid.split()[0]}/status") as f:
+            for line in f:
+                if line.startswith("CapEff:"):
+                    return bool(int(line.split()[1], 16)
+                                >> CAP_WAKE_ALARM & 1)
+    except (OSError, ValueError):
+        pass
+    return False
+
+
 def wake_backend() -> str | None:
     """Which wake-from-suspend mechanism is available, if any."""
-    if _run(["busctl", "--user", "status", PD_DEST]) is not None:
+    if _run(["busctl", "--user", "status", PD_DEST]) is not None \
+            and _powerdevil_can_wake():
         return "powerdevil"
     if shutil.which("rtcwake"):
         return "rtcwake"
@@ -81,8 +107,7 @@ def wake_backend() -> str | None:
 def schedule_wakeup(epoch: int) -> tuple[str | None, int | None]:
     """Program an RTC wake at the given UNIX time.
     Returns (backend, cookie); (None, None) if nothing worked."""
-    backend = wake_backend()
-    if backend == "powerdevil":
+    if wake_backend() == "powerdevil":
         out = _run(["busctl", "--user", "call", PD_DEST, PD_PATH, PD_IFACE,
                     "scheduleWakeup", "sot",
                     "org.strawalarm", "/wakeup", str(epoch)])

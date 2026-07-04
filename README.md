@@ -97,6 +97,25 @@ The CLI runs in the foreground (Ctrl+C cancels). To detach:
 - Wake-from-suspend needs KDE PowerDevil (any Plasma desktop) or a
   root-capable `rtcwake`; without either, the alarm still works but
   can't wake a suspended machine. Hibernation is untested.
+- **PowerDevil needs `CAP_WAKE_ALARM`** to arm the RTC, and some
+  distros (Fedora 44, at least) ship the binary without it — the
+  scheduleWakeup API then silently does nothing. strawalarm detects
+  this and warns instead of trusting it. Fix:
+
+  ```sh
+  sudo setcap cap_wake_alarm+ep /usr/libexec/org_kde_powerdevil
+  systemctl --user restart plasma-powerdevil.service
+  ```
+
+  (Re-apply after a PowerDevil package update replaces the binary.)
+- While the sleep timer plays, only *suspend* is blocked — the screen
+  still dims and switches off on your normal schedule. Your desktop's
+  battery/energy widget will truthfully show "Strawalarm is preventing
+  sleep".
+- If the alarm fires the moment the machine resumes (e.g. the RTC wake
+  was late or missing), strawalarm waits ~12 s for the audio stack to
+  settle and then watches playback for the first minute, restarting the
+  player if it choked on a half-initialized audio device.
 - All timers use absolute wall-clock deadlines, so suspend/resume
   needs no special handling — the countdown is simply correct when
   the machine wakes up.
