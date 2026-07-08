@@ -117,8 +117,14 @@ The CLI runs in the foreground (Ctrl+C cancels). To detach:
 
   ```sh
   sudo contrib/install-powerdevil-caps.sh
+  # then, as your normal user — NOT inside the sudo/root shell:
   systemctl --user restart plasma-powerdevil.service
   ```
+
+  (Running the restart in a root shell starts a sessionless PowerDevil
+  under root's user manager, which crash-loops with a scary but
+  harmless "dumped core" message — your desktop's instance is
+  unaffected.)
 - While the sleep timer plays, only *suspend* is blocked — the screen
   still dims and switches off on your normal schedule. Your desktop's
   battery/energy widget will truthfully show "Strawalarm is preventing
