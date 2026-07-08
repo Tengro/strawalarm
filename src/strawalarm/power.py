@@ -14,9 +14,13 @@ suspend-on-demand.
 from __future__ import annotations
 
 import ctypes
+import os
 import shutil
 import signal
 import subprocess
+
+SYSFS_WAKEALARM = "/sys/class/rtc/rtc0/wakealarm"
+RTC_DEV = "/dev/rtc0"
 
 PD_DEST = "org.kde.Solid.PowerManagement"
 PD_PATH = "/org/kde/Solid/PowerManagement"
@@ -95,19 +99,40 @@ def _powerdevil_can_wake() -> bool:
 
 
 def wake_backend() -> str | None:
-    """Which wake-from-suspend mechanism is available, if any."""
+    """Which wake-from-suspend mechanism is *actually usable*, if any.
+    Existence of a tool is not enough — rtcwake and the sysfs wakealarm
+    need write access to the RTC, which plain users don't have."""
     if _run(["busctl", "--user", "status", PD_DEST]) is not None \
             and _powerdevil_can_wake():
         return "powerdevil"
-    if shutil.which("rtcwake"):
+    if os.access(SYSFS_WAKEALARM, os.W_OK):
+        return "sysfs"
+    if shutil.which("rtcwake") and os.access(RTC_DEV, os.W_OK):
         return "rtcwake"
     return None
+
+
+def _sysfs_schedule(epoch: int) -> bool:
+    """Arm the RTC by writing the sysfs wakealarm attribute directly.
+    Assumes the hardware clock runs UTC (the Linux default)."""
+    try:
+        try:  # clear any pending alarm first; harmless if none
+            with open(SYSFS_WAKEALARM, "w") as f:
+                f.write("0")
+        except OSError:
+            pass
+        with open(SYSFS_WAKEALARM, "w") as f:
+            f.write(str(epoch))
+        return True
+    except OSError:
+        return False
 
 
 def schedule_wakeup(epoch: int) -> tuple[str | None, int | None]:
     """Program an RTC wake at the given UNIX time.
     Returns (backend, cookie); (None, None) if nothing worked."""
-    if wake_backend() == "powerdevil":
+    backend = wake_backend()
+    if backend == "powerdevil":
         out = _run(["busctl", "--user", "call", PD_DEST, PD_PATH, PD_IFACE,
                     "scheduleWakeup", "sot",
                     "org.strawalarm", "/wakeup", str(epoch)])
@@ -116,7 +141,10 @@ def schedule_wakeup(epoch: int) -> tuple[str | None, int | None]:
                 return "powerdevil", int(out.split()[1])
             except (IndexError, ValueError):
                 return "powerdevil", None
-    if shutil.which("rtcwake"):
+        backend = "sysfs"  # PowerDevil balked — try the RTC directly
+    if backend == "sysfs" and _sysfs_schedule(epoch):
+        return "sysfs", None
+    if backend and shutil.which("rtcwake"):
         r = subprocess.run(["rtcwake", "-m", "no", "-t", str(epoch)],
                            capture_output=True)
         if r.returncode == 0:
@@ -128,7 +156,15 @@ def clear_wakeup(cookie: int | None):
     if cookie is not None:
         _run(["busctl", "--user", "call", PD_DEST, PD_PATH, PD_IFACE,
               "clearWakeup", "i", str(cookie)])
-    elif shutil.which("rtcwake"):
+        return
+    if os.access(SYSFS_WAKEALARM, os.W_OK):
+        try:
+            with open(SYSFS_WAKEALARM, "w") as f:
+                f.write("0")
+            return
+        except OSError:
+            pass
+    if shutil.which("rtcwake") and os.access(RTC_DEV, os.W_OK):
         subprocess.run(["rtcwake", "-m", "disable"], capture_output=True)
 
 

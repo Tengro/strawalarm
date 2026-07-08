@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch the PowerDevil binary and restore CAP_WAKE_ALARM after updates
+
+[Path]
+PathChanged=/usr/libexec/org_kde_powerdevil
+
+[Install]
+WantedBy=multi-user.target

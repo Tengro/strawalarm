@@ -172,6 +172,14 @@ class Session:
     # ---------- lifecycle ----------
 
     def start(self):
+        if self.wake and self.wake.wake_system \
+                and power.wake_backend() is None:
+            # Warn while the user is still awake, not hours later at arm
+            # time — PowerDevil loses CAP_WAKE_ALARM on package updates.
+            self.log("Warning: wake-from-suspend is unavailable — if the "
+                     "PC suspends, the alarm will NOT wake it. (PowerDevil "
+                     "usually loses CAP_WAKE_ALARM after a package update; "
+                     "see the strawalarm README for the permanent fix.)")
         if self.player.running():
             self._desktop_entry = self.player.desktop_entry()
             self._initial_volume = self.player.volume()

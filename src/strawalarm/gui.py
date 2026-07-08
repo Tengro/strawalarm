@@ -379,6 +379,16 @@ class MainWindow(QMainWindow):
         if self.player_combo.count() == 0:
             self.phase_label.setText("No MPRIS players running — "
                                      "start your music player and refresh.")
+        # Wake backend availability can change at runtime (updates,
+        # setcap fixes) — re-evaluate on every refresh.
+        wake_ok = power.wake_backend() is not None
+        self.wake_system_check.setEnabled(wake_ok)
+        self.wake_lead_spin.setEnabled(
+            wake_ok and self.wake_system_check.isChecked())
+        self.wake_system_check.setToolTip(
+            "" if wake_ok else
+            "No wake-from-suspend backend found (needs KDE PowerDevil "
+            "with CAP_WAKE_ALARM, or root rtcwake) — see README")
         self.refresh_playlists()
 
     def current_player(self):
@@ -446,6 +456,21 @@ class MainWindow(QMainWindow):
         except ValueError as e:
             QMessageBox.warning(self, "Strawalarm", str(e))
             return
+        if self.wake_group.isChecked() \
+                and self.wake_system_check.isChecked() \
+                and power.wake_backend() is None:
+            answer = QMessageBox.warning(
+                self, "Strawalarm",
+                "Wake-from-suspend is unavailable right now, so if the PC "
+                "suspends, the alarm will NOT wake it.\n\n"
+                "PowerDevil usually loses the CAP_WAKE_ALARM capability "
+                "after a package update. Permanent fix (once):\n"
+                "  sudo contrib/install-powerdevil-caps.sh\n"
+                "then restart plasma-powerdevil (or relog).\n\n"
+                "Arm the alarm anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         if self.wake_group.isChecked():
             wake = WakeSpec(
                 time_spec=time_spec,

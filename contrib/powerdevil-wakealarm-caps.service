@@ -1,0 +1,16 @@
+[Unit]
+Description=Restore CAP_WAKE_ALARM on PowerDevil (lost on package updates)
+# PowerDevil needs CAP_WAKE_ALARM to program RTC wake-from-suspend
+# (scheduleWakeup, used by strawalarm and KAlarm). Some distros ship the
+# binary without the file capability, and every package update replaces
+# the binary and wipes a manually applied one. This unit re-applies it
+# at boot; the matching .path unit re-applies it right after updates.
+# https://github.com/Tengro/strawalarm
+ConditionPathExists=/usr/libexec/org_kde_powerdevil
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/setcap cap_wake_alarm+ep /usr/libexec/org_kde_powerdevil
+
+[Install]
+WantedBy=multi-user.target

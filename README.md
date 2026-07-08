@@ -109,15 +109,16 @@ The CLI runs in the foreground (Ctrl+C cancels). To detach:
   can't wake a suspended machine. Hibernation is untested.
 - **PowerDevil needs `CAP_WAKE_ALARM`** to arm the RTC, and some
   distros (Fedora 44, at least) ship the binary without it — the
-  scheduleWakeup API then silently does nothing. strawalarm detects
-  this and warns instead of trusting it. Fix:
+  scheduleWakeup API then silently does nothing. Worse, a manual
+  `setcap` fix is wiped by every PowerDevil package update. strawalarm
+  detects the missing capability and warns when you arm the alarm.
+  Permanent fix (installs systemd units that re-apply the capability
+  at boot and immediately after updates):
 
   ```sh
-  sudo setcap cap_wake_alarm+ep /usr/libexec/org_kde_powerdevil
+  sudo contrib/install-powerdevil-caps.sh
   systemctl --user restart plasma-powerdevil.service
   ```
-
-  (Re-apply after a PowerDevil package update replaces the binary.)
 - While the sleep timer plays, only *suspend* is blocked — the screen
   still dims and switches off on your normal schedule. Your desktop's
   battery/energy widget will truthfully show "Strawalarm is preventing
