@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QPushButton, QRadioButton, QSlider, QSpinBox, QSystemTrayIcon,
     QToolButton, QVBoxLayout, QWidget)
 
-from . import __version__, power
+from . import __version__, filelog, power
 from .core import (SNOOZABLE, Phase, Session, SleepSpec, WakeSpec,
                    fmt_delta, next_occurrence, parse_duration,
                    parse_wake_time)
@@ -451,6 +451,7 @@ class MainWindow(QMainWindow):
     def log(self, msg):
         self.log_view.appendPlainText(
             f"[{dt.datetime.now():%H:%M:%S}] {msg}")
+        filelog.get_logger().info("[gui] %s", msg)
 
     def refresh_players(self):
         current = self.player_combo.currentData()

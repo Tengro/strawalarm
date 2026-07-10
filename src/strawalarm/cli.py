@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from . import __version__
+from . import __version__, filelog
 from .core import (SNOOZABLE, WEEKDAY_NAMES, Phase, Session, SleepSpec,
                    WakeSpec, parse_duration)
 from .mpris import Player
@@ -17,6 +17,7 @@ from .mpris import Player
 
 def log(msg):
     print(f"[{dt.datetime.now():%H:%M:%S}] {msg}", flush=True)
+    filelog.get_logger().info("[cli] %s", msg)
 
 
 def pick_player(args) -> Player:

@@ -172,6 +172,14 @@ first one's window.
 - Without `--fade`, `--tracks N` stops the instant track N+1 starts, so
   you may hear a sub-second blip; with a fade it ends cleanly.
 
+## Reporting bugs
+
+Every session is logged to
+`~/.local/state/strawalarm/strawalarm.log` (rotated, 3 × 1 MB) by both
+the GUI and the CLI. Please attach the relevant lines to bug reports —
+especially for "the alarm didn't fire" issues, the log usually names
+the culprit directly.
+
 ## Project direction
 
 Where this is headed — phases, risks, design sketches and the decision
