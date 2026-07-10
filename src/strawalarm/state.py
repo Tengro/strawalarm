@@ -14,6 +14,24 @@ STATE_VERSION = 1
 SLEEP_PHASES = ("sleep_wait", "fade_out")
 
 
+def specs_to_dict(player_name, sleep, wake) -> dict:
+    """Wire/disk format for a session spec (D-Bus arm calls, armed.json)."""
+    return {"player": player_name,
+            "sleep": dataclasses.asdict(sleep) if sleep else None,
+            "wake": dataclasses.asdict(wake) if wake else None}
+
+
+def specs_from_dict(data: dict):
+    """-> (player_name, SleepSpec|None, WakeSpec|None). Raises TypeError
+    on unknown fields, ValueError on garbage."""
+    from .core import SleepSpec, WakeSpec  # avoid module cycle
+    sleep = SleepSpec(**data["sleep"]) if data.get("sleep") else None
+    wake = WakeSpec(**data["wake"]) if data.get("wake") else None
+    if wake and wake.weekdays:
+        wake.weekdays = tuple(wake.weekdays)  # JSON turned it into a list
+    return data.get("player"), sleep, wake
+
+
 def armed_path() -> str:
     state = os.environ.get("XDG_STATE_HOME",
                            os.path.expanduser("~/.local/state"))
@@ -82,14 +100,11 @@ def plan_recovery(data: dict, now: float | None = None) -> dict:
     "missed" (one-shot alarm time passed while nothing ran),
     "rearm" (specs ready to start; 'sleep'/'wake' keys, 'message',
     and 'missed' flag when a recurring occurrence was skipped)."""
-    from .core import SleepSpec, WakeSpec, fmt_delta  # avoid module cycle
+    from .core import fmt_delta  # avoid module cycle
     now = now or time.time()
     if owner_alive(data):
         return {"kind": "active"}
-    sleep = SleepSpec(**data["sleep"]) if data.get("sleep") else None
-    wake = WakeSpec(**data["wake"]) if data.get("wake") else None
-    if wake and wake.weekdays:
-        wake.weekdays = tuple(wake.weekdays)
+    _, sleep, wake = specs_from_dict(data)
     stop_deadline = data.get("stop_deadline")
     wake_at = data.get("wake_at")
 

@@ -47,7 +47,7 @@ armed-state recovery, any packaging beyond `install.sh`.
 | R6 | PowerDevil capability regression returns in a new form | Mitigated (units + honest probe + arm-time dialog) | watch |
 | R7 | Incidents can't be diagnosed after the fact (no log file) | Slow/impossible support | 1.2 |
 
-## Phase 1 — Trust (gate: before any public announcement)
+## Phase 1 — Trust ✅ (shipped in v0.8.0)
 
 Strangers' first bug report must be diagnosable; their first morning
 must not fail silently. **The Show HN moment is one-shot — do not
@@ -106,7 +106,7 @@ CONTRIBUTING.md (bump, changelog, tag, `gh release` → CI publishes).
 - **Done when:** `pipx install strawalarm[gui]` works from a tagged
   release with no manual upload step.
 
-## Phase 2 — Durability (the app becomes an alarm clock)
+## Phase 2 — Durability ✅ (2.1+2.2 in v0.9.0, 2.3 in v0.10.0)
 
 ### 2.1 Armed-state persistence & recovery — M
 On arm, serialize the session spec + phase deadlines to

@@ -122,22 +122,32 @@ def cmd_gui(_args):
     gui_main()
 
 
-REMOTE_DEST = "io.github.tengro.strawalarm"
+def cmd_daemon(_args):
+    from .daemon import main as daemon_main
+    daemon_main()
+
+
+DAEMON_DEST = "io.github.tengro.strawalarm1"
+GUI_DEST = "io.github.tengro.strawalarm"
+# The daemon arms from saved specs; the GUI arms from its form values.
+DAEMON_METHOD = {"arm": "arm_saved"}
 
 
 def cmd_remote(args):
-    """Control the running GUI over D-Bus (works from KDE Connect too)."""
-    r = subprocess.run(
-        ["busctl", "--user", "--json=short", "call",
-         REMOTE_DEST, "/", REMOTE_DEST, args.method],
-        capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit("The strawalarm GUI is not running — remote commands "
-                 "control a running GUI instance.")
-    reply = json.loads(r.stdout)["data"][0]
-    print(reply)
-    if reply.startswith("Error:"):
-        sys.exit(1)
+    """Control the daemon (preferred) or the running GUI over D-Bus —
+    this is what KDE Connect phone commands reach."""
+    for dest, method in ((DAEMON_DEST, DAEMON_METHOD.get(args.method,
+                                                         args.method)),
+                         (GUI_DEST, args.method)):
+        r = subprocess.run(
+            ["busctl", "--user", "--json=short", "call",
+             dest, "/", dest, method],
+            capture_output=True, text=True)
+        if r.returncode == 0:
+            reply = json.loads(r.stdout)["data"][0]
+            print(reply)
+            sys.exit(1 if reply.startswith("Error:") else 0)
+    sys.exit("Neither strawalarmd nor the Straw Alarm GUI is running.")
 
 
 def add_common(sp):
@@ -207,6 +217,10 @@ def main():
 
     pg = sub.add_parser("gui", help="launch the graphical interface")
     pg.set_defaults(func=cmd_gui)
+
+    pd = sub.add_parser("daemon", help="run the background alarm daemon "
+                                       "(normally via strawalarmd.service)")
+    pd.set_defaults(func=cmd_daemon)
 
     for name, helptext in (
             ("arm", "remote: arm the running GUI with its saved settings"),

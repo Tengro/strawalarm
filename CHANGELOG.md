@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.0 — 2026-07-10
+
+Phase 2 of the [roadmap](ROADMAP.md) complete — plus a rebrand.
+
+- The app is now called **Straw Alarm** (a straw, not a Strawberry —
+  it long outgrew a single player). All technical names (`strawalarm`
+  package/commands, D-Bus, paths) are unchanged.
+- **`strawalarmd`**: a background daemon (systemd user service,
+  `Restart=on-failure`) that owns armed sessions. Alarms survive
+  closing the GUI, GUI crashes, and SIGKILL of the daemon itself
+  (verified live: killed mid-countdown, restarted, re-armed with the
+  correct remaining time). D-Bus interface
+  `io.github.tengro.strawalarm1`; the GUI auto-detects the daemon,
+  arms into it, and live-monitors/controls sessions it didn't start.
+  `strawalarm arm|snooze|cancel|status` reach the daemon first, so
+  phone commands work with no GUI running at all.
+- Without the daemon, everything still runs in-process as before.
+
 ## 0.9.0 — 2026-07-10
 
 Phase 2 of the [roadmap](ROADMAP.md), first half: durability.

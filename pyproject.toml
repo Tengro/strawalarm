@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "strawalarm"
-version = "0.9.0"
+version = "0.10.0"
 description = "Straw Alarm — sleep timer and music alarm for any MPRIS2 player (fall asleep to music, wake to a playlist; AIMP-style)"
 readme = "README.md"
 license = { text = "MIT" }
@@ -27,6 +27,7 @@ dev = ["pytest", "pytest-cov", "ruff"]
 [project.scripts]
 strawalarm = "strawalarm.cli:main"
 strawalarm-gui = "strawalarm.gui:main"
+strawalarmd = "strawalarm.daemon:main"
 
 [project.urls]
 Homepage = "https://github.com/Tengro/strawalarm"

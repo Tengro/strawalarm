@@ -592,6 +592,21 @@ class Session:
             state.clear()
 
 
+def session_state(session: "Session | None") -> dict:
+    """JSON-able snapshot of a session for frontends (daemon get_state)."""
+    if session is None or not session.active:
+        phase = session.phase.value if session else "idle"
+        text = f"Error: {session.error}" if session and session.error \
+            else "Idle."
+        return {"active": False, "phase": phase, "text": text,
+                "countdown": None, "snoozable": False, "recurring": False}
+    text, countdown = session.status()
+    return {"active": True, "phase": session.phase.value, "text": text,
+            "countdown": countdown,
+            "snoozable": session.phase in SNOOZABLE,
+            "recurring": session.recurring}
+
+
 PREVIEW_FADE = 3
 PREVIEW_PLAY = 10
 

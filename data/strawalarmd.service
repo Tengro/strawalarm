@@ -1,0 +1,12 @@
+[Unit]
+Description=Straw Alarm daemon (sleep timer / music alarm engine)
+
+[Service]
+Type=dbus
+BusName=io.github.tengro.strawalarm1
+ExecStart=%h/.local/bin/strawalarmd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

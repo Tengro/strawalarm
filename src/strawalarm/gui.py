@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QPushButton, QRadioButton, QSlider, QSpinBox, QSystemTrayIcon,
     QToolButton, QVBoxLayout, QWidget)
 
+import json
 import os
 import shutil
 
@@ -28,6 +29,31 @@ from .mpris import PROXY_PREFIXES, Player
 TICK_MS = 250
 DBUS_SERVICE = "io.github.tengro.strawalarm"
 DBUS_IFACE = "io.github.tengro.strawalarm"
+DAEMON_SERVICE = "io.github.tengro.strawalarm1"
+
+
+class DaemonClient:
+    """Thin client for strawalarmd. When the daemon runs, sessions live
+    there — they survive the GUI closing entirely."""
+
+    def available(self) -> bool:
+        reply = QDBusConnection.sessionBus().interface() \
+            .isServiceRegistered(DAEMON_SERVICE)
+        return bool(reply.value())
+
+    def call(self, method, *args):
+        iface = QDBusInterface(DAEMON_SERVICE, "/", DAEMON_SERVICE,
+                               QDBusConnection.sessionBus())
+        msg = iface.call(method, *args)
+        arguments = msg.arguments()
+        return arguments[0] if arguments else None
+
+    def get_state(self) -> dict | None:
+        raw = self.call("get_state")
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            return None
 
 
 class MainWindow(QMainWindow):
@@ -35,6 +61,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.session = None
         self.preview = None
+        self.daemon = DaemonClient()
+        self.remote_active = False  # monitoring a session owned by strawalarmd
         self._quitting = False
         self.timer = QTimer(self)
         self.timer.setInterval(TICK_MS)
@@ -75,14 +103,36 @@ class MainWindow(QMainWindow):
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
             self.toggle_window()
 
-    def cancel_from_tray(self):
+    def cancel_session(self):
+        """Cancel wherever the session lives (daemon or in-process)."""
+        if self.remote_active:
+            self.daemon.call("cancel")
+            return
         if self.session and self.session.active:
             self.session.cancel()
             self.finish_session()
 
+    def cancel_from_tray(self):
+        self.cancel_session()
+
     def do_snooze(self):
-        if self.session:
+        if self.remote_active:
+            self.daemon.call("snooze")
+        elif self.session:
             self.session.snooze()
+
+    def adopt_daemon_session(self):
+        """If strawalarmd already has an armed session (e.g. it recovered
+        one at login), show and control it instead of sitting idle."""
+        if self.remote_active or (self.session and self.session.active):
+            return
+        st = self.daemon.get_state() if self.daemon.available() else None
+        if st and st.get("active"):
+            self.remote_active = True
+            self.log("Monitoring the armed session in the background "
+                     "daemon.")
+            self.set_running(True)
+            self.timer.start()
 
     # ---------- alarm preview ----------
 
@@ -640,9 +690,8 @@ class MainWindow(QMainWindow):
     # ---------- session control ----------
 
     def on_start_cancel(self):
-        if self.session and self.session.active:
-            self.session.cancel()
-            self.finish_session()
+        if self.remote_active or (self.session and self.session.active):
+            self.cancel_session()
             return
         try:
             sleep, wake = self.build_specs()
@@ -712,22 +761,54 @@ class MainWindow(QMainWindow):
         return sleep, wake
 
     def start_session(self, sleep, wake):
-        """Arm a session. Returns an error string or None on success."""
+        """Arm a session — in strawalarmd when it's running (survives the
+        GUI closing), in-process otherwise. Error string or None."""
         player = self.current_player()
         if not player:
             return "No MPRIS player selected."
-        self.session = Session(player, sleep=sleep, wake=wake, log=self.log)
-        try:
-            self.session.start()
-        except (RuntimeError, LookupError, ValueError) as e:
-            self.session = None
-            return str(e)
+        specs = state.specs_to_dict(player.name, sleep, wake)
+        if self.daemon.available():
+            reply = self.daemon.call("arm", json.dumps(specs)) or ""
+            if reply.startswith("Error"):
+                return reply.removeprefix("Error: ") or reply
+            self.remote_active = True
+            self.log("Armed in the background daemon — the alarm now "
+                     "survives closing this window entirely.")
+        else:
+            self.session = Session(player, sleep=sleep, wake=wake,
+                                   log=self.log)
+            try:
+                self.session.start()
+            except (RuntimeError, LookupError, ValueError) as e:
+                self.session = None
+                return str(e)
+        QSettings("strawalarm", "strawalarm").setValue(
+            "last_specs", json.dumps(specs))  # for remote/phone arming
         self._save_settings()
         self.set_running(True)
         self.timer.start()
         return None
 
     def on_tick(self):
+        if self.remote_active:
+            st = self.daemon.get_state() or {
+                "active": False, "text": "Daemon unreachable.",
+                "countdown": None, "snoozable": False}
+            self.phase_label.setText(st["text"])
+            countdown = st.get("countdown")
+            self.tray.setToolTip(
+                f"Straw Alarm — {st['text']}"
+                + (f" {fmt_delta(countdown)}" if countdown is not None
+                   else ""))
+            self.countdown_label.setEnabled(True)
+            self.countdown_label.setText(
+                fmt_delta(countdown) if countdown is not None else "•")
+            self.snooze_btn.setEnabled(bool(st.get("snoozable")))
+            self.tray_snooze.setEnabled(bool(st.get("snoozable")))
+            if not st.get("active"):
+                self.remote_active = False
+                self.finish_session()
+            return
         if not self.session:
             return
         self.session.tick()
@@ -775,6 +856,17 @@ class MainWindow(QMainWindow):
         if self._quitting:
             event.accept()
             return
+        if self.remote_active:  # daemon owns the alarm; hide the monitor
+            if self.tray.isVisible():
+                self.hide()
+                self.tray.showMessage(
+                    "Straw Alarm", "The alarm keeps running in the "
+                    "background daemon.", app_icon(), 4000)
+                event.ignore()
+                return
+            event.accept()
+            QApplication.quit()
+            return
         if self.session and self.session.active:
             if self.tray.isVisible():  # keep the armed timer alive in the tray
                 self.hide()
@@ -821,22 +913,29 @@ class RemoteControl(QObject):
 
     @Slot(result=str)
     def snooze(self):
-        if self.win.session and self.win.session.snooze():
+        w = self.win
+        if w.remote_active:
+            return w.daemon.call("snooze") or "Snoozed."
+        if w.session and w.session.snooze():
             return "Snoozed."
         return "No ringing alarm to snooze."
 
     @Slot(result=str)
     def cancel(self):
-        if self.win.session and self.win.session.active:
-            self.win.session.cancel()
+        w = self.win
+        if w.remote_active or (w.session and w.session.active):
+            w.cancel_session()
             return "Cancelled."
         return "Nothing armed."
 
     @Slot(result=str)
     def status(self):
-        if not self.win.session or not self.win.session.active:
+        w = self.win
+        if w.remote_active:
+            return w.daemon.call("status") or "Daemon unreachable."
+        if not w.session or not w.session.active:
             return "Idle."
-        text, countdown = self.win.session.status()
+        text, countdown = w.session.status()
         return text + (f" {fmt_delta(countdown)}"
                        if countdown is not None else "")
 
@@ -886,6 +985,7 @@ def main():
     if not hidden:
         win.show()
     win.check_recovery(interactive=not hidden)
+    win.adopt_daemon_session()
     rc = app.exec()
     # Deterministic teardown: force-destroy the C++ objects while the
     # interpreter is fully alive. Letting PySide's atexit hook destroy
