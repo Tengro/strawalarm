@@ -87,14 +87,8 @@ def cmd_sleep(args):
 
 
 def cmd_wake(args):
-    spec = build_wake(args)
-    player = pick_player(args)
-    while True:
-        session = Session(player, wake=spec, log=log)
-        run(session)
-        if session.cancelled or not spec.weekdays:
-            break
-        log("Recurring alarm — re-arming for the next scheduled day.")
+    # Recurring alarms re-arm inside the Session, so one run() suffices.
+    run(Session(pick_player(args), wake=build_wake(args), log=log))
 
 
 def run(session):

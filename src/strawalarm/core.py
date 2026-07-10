@@ -17,7 +17,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from . import power
+from . import notify, power
 from .mpris import Player
 
 DEFAULT_ALARM_VOLUME = 0.5
@@ -28,6 +28,7 @@ DEFAULT_KEEP_AWAKE = 1800  # hold the sleep-block this long after the alarm
 RESUME_SETTLE = 12         # audio-stack grace after a suspend/resume jump
 WATCHDOG_WINDOW = 45       # re-play window after the alarm starts
 WATCHDOG_KICKS = 3         # max automatic playback restarts
+RETRY_DELAY = 30           # recurring alarm: retry a failed firing once
 
 
 # ---------- parsing helpers ----------
@@ -125,6 +126,7 @@ class Phase(enum.Enum):
     FADE_IN = "fade_in"
     KEEP_AWAKE = "keep_awake"
     SNOOZE = "snooze"
+    RETRY = "retry"
     DONE = "done"
     ERROR = "error"
 
@@ -168,6 +170,11 @@ class Session:
         self._watchdog_kicks = 0
         self._snooze_deadline = 0.0
         self.cancelled = False
+        # A recurring alarm-only session re-arms itself after each firing
+        # and never dies to a single bad morning.
+        self.recurring = bool(wake and wake.weekdays and not sleep)
+        self._retry_at = 0.0
+        self._retry_used = False
 
     # ---------- lifecycle ----------
 
@@ -180,6 +187,10 @@ class Session:
                      "PC suspends, the alarm will NOT wake it. (PowerDevil "
                      "usually loses CAP_WAKE_ALARM after a package update; "
                      "see the strawalarm README for the permanent fix.)")
+            notify.send("Strawalarm: wake-from-suspend unavailable",
+                        "If the PC suspends, the alarm will not wake it. "
+                        "See the README for the CAP_WAKE_ALARM fix.",
+                        critical=True)
         if self.player.running():
             self._desktop_entry = self.player.desktop_entry()
             self._initial_volume = self.player.volume()
@@ -222,8 +233,9 @@ class Session:
         self._watchdog_until = 0.0  # don't fight the snooze
         self._snooze_deadline = time.time() + self.wake.snooze
         self.phase = Phase.SNOOZE
-        self.log(f"Snoozed — alarm again at "
-                 f"{dt.datetime.fromtimestamp(self._snooze_deadline):%H:%M:%S}.")
+        again = f"{dt.datetime.fromtimestamp(self._snooze_deadline):%H:%M:%S}"
+        self.log(f"Snoozed — alarm again at {again}.")
+        notify.send("Snoozed", f"Alarm again at {again}.")
         return True
 
     def _cleanup_power(self, clear_wake: bool):
@@ -238,10 +250,32 @@ class Session:
         try:
             self._tick()
         except Exception as e:  # surface, don't crash the frontend loop
-            self.error = str(e)
-            self.phase = Phase.ERROR
-            self.log(f"Error: {e}")
-            self._cleanup_power(clear_wake=True)
+            self._on_error(e)
+
+    def _on_error(self, e):
+        self.log(f"Error: {e}")
+        if self.recurring and not self._retry_used:
+            self._retry_used = True
+            self._retry_at = time.time() + RETRY_DELAY
+            self._watchdog_until = 0.0
+            self.phase = Phase.RETRY
+            self.log(f"Recurring alarm — retrying in {RETRY_DELAY}s.")
+            return
+        if self.recurring:
+            # Never let one bad morning kill the whole recurrence.
+            notify.send("Strawalarm: alarm failed",
+                        f"{e} — re-armed for the next scheduled day.",
+                        critical=True)
+            try:
+                self.inhibitor.release()
+                self._arm_wake()
+                return
+            except Exception as arm_error:
+                self.log(f"Error re-arming: {arm_error}")
+        self.error = str(e)
+        self.phase = Phase.ERROR
+        notify.send("Strawalarm: session failed", str(e), critical=True)
+        self._cleanup_power(clear_wake=True)
 
     @property
     def active(self):
@@ -270,6 +304,8 @@ class Session:
             return ("Keeping system awake for", self._keep_awake_deadline - now)
         if self.phase == Phase.SNOOZE:
             return ("Snoozing — alarm again in", self._snooze_deadline - now)
+        if self.phase == Phase.RETRY:
+            return ("Alarm hiccuped — retrying in", self._retry_at - now)
         if self.phase == Phase.ERROR:
             return (f"Error: {self.error}", None)
         if self.phase == Phase.DONE:
@@ -309,10 +345,13 @@ class Session:
             if now >= self._keep_awake_deadline:
                 self.inhibitor.release()
                 self.log("Sleep-block released; normal power settings apply.")
-                self.phase = Phase.DONE
+                self._complete()
         elif self.phase == Phase.SNOOZE:
             if now >= self._snooze_deadline:
                 self._begin_alarm(now, resume_only=True)
+        elif self.phase == Phase.RETRY:
+            if now >= self._retry_at:
+                self._reach_wake_time(now)
 
     def _tick_watchdog(self, now):
         """For a short window after the alarm starts, make sure playback
@@ -408,6 +447,7 @@ class Session:
             else "resume playback"
         self.log(f"Alarm set for {self.wake_at:%a %Y-%m-%d %H:%M:%S} "
                  f"(in {fmt_delta(delta)}) — {what}.")
+        self._retry_used = False
         if self.wake.wake_system:
             wake_epoch = int(self.wake_at.timestamp() - self.wake.wake_lead)
             if wake_epoch > time.time():
@@ -472,9 +512,11 @@ class Session:
             path, name = self.player.find_playlist(self.wake.playlist)
             self.player.activate_playlist(path)
             self.log(f'Wake up! Playing "{name}".')
+            notify.send("Wake up!", f'Playing "{name}".')
         else:
             self.player.play()
             self.log("Wake up! Resuming playback.")
+            notify.send("Wake up!", "Resuming playback.")
         if self.player.status() != "Playing":
             self.player.play()
         self._watchdog_until = now + (fade or 0) + WATCHDOG_WINDOW
@@ -506,6 +548,17 @@ class Session:
             self.phase = Phase.KEEP_AWAKE
         else:
             self.inhibitor.release()
+            self._complete()
+
+    def _complete(self):
+        """Alarm ran its course: recurring sessions re-arm, others end."""
+        if self.recurring and not self.cancelled:
+            self.log("Recurring alarm — re-arming for the next "
+                     "scheduled day.")
+            self._arm_wake()
+            notify.send("Strawalarm re-armed",
+                        f"Next alarm: {self.wake_at:%a %H:%M}.")
+        else:
             self.phase = Phase.DONE
 
 

@@ -143,6 +143,17 @@ class FakePower:
         self.events.append(("suspend",))
 
 
+@pytest.fixture(autouse=True)
+def fnotify(monkeypatch):
+    """No test may fire real desktop notifications."""
+    sent = []
+    monkeypatch.setattr(
+        core.notify, "send",
+        lambda summary, body="", critical=False:
+        sent.append((summary, body, critical)) or True)
+    return sent
+
+
 @pytest.fixture
 def clock(monkeypatch):
     c = FakeClock()

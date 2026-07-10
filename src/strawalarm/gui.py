@@ -605,18 +605,7 @@ class MainWindow(QMainWindow):
         snoozable = self.session.phase in SNOOZABLE
         self.snooze_btn.setEnabled(snoozable)
         self.tray_snooze.setEnabled(snoozable)
-        if not self.session.active:
-            s = self.session
-            if (s.phase == Phase.DONE and not s.cancelled and s.wake
-                    and s.wake.weekdays and not s.sleep):
-                self.log("Recurring alarm — re-arming for the next "
-                         "scheduled day.")
-                self.session = Session(s.player, wake=s.wake, log=self.log)
-                try:
-                    self.session.start()
-                    return
-                except (RuntimeError, LookupError, ValueError) as e:
-                    self.log(f"Error re-arming: {e}")
+        if not self.session.active:  # recurrence re-arms inside Session
             self.finish_session()
 
     def finish_session(self):
