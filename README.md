@@ -46,6 +46,11 @@ without it, the alarm simply resumes playback.
   mid-morning-playlist.
 - **Remembers your setup**: the GUI restores all last-used values on
   launch, so re-arming your usual night is just pressing Start
+- **Survives crashes**: armed sessions persist to disk; after a crash,
+  logout or reboot, strawalarm offers one-click re-arm with the correct
+  remaining time (or tells you explicitly that an alarm was missed).
+  With "Start with the desktop" enabled, recurring alarms restore
+  themselves at login with zero interaction
 - **Remote control**: the GUI exposes a D-Bus service; `strawalarm
   arm|snooze|cancel|status` control it from any shell — wire those
   into KDE Connect's "Run commands" plugin and you can arm, snooze or

@@ -16,7 +16,10 @@ from PySide6.QtWidgets import (
     QPushButton, QRadioButton, QSlider, QSpinBox, QSystemTrayIcon,
     QToolButton, QVBoxLayout, QWidget)
 
-from . import __version__, filelog, power
+import os
+import shutil
+
+from . import __version__, filelog, notify, power, state
 from .core import (SNOOZABLE, Phase, Preview, Session, SleepSpec,
                    WakeSpec, fmt_delta, next_occurrence, parse_duration,
                    parse_wake_time)
@@ -341,6 +344,13 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(self.preview_btn, 1)
         layout.addLayout(btn_row)
 
+        # autostart
+        self.autostart_check = QCheckBox(
+            "Start with the desktop (hidden in the tray)")
+        self.autostart_check.setChecked(os.path.exists(autostart_path()))
+        self.autostart_check.toggled.connect(self.on_autostart_toggled)
+        layout.addWidget(self.autostart_check)
+
         # log
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
@@ -409,6 +419,83 @@ class MainWindow(QMainWindow):
         except ValueError:
             hint = "→ enter a time like 07:30 or a duration like 8h"
         self.wake_hint.setText(hint)
+
+    # ---------- autostart ----------
+
+    def on_autostart_toggled(self, enabled):
+        try:
+            if enabled:
+                os.makedirs(os.path.dirname(autostart_path()), exist_ok=True)
+                exe = shutil.which("strawalarm-gui") \
+                    or f"{sys.executable} -m strawalarm.gui"
+                with open(autostart_path(), "w") as f:
+                    f.write("[Desktop Entry]\n"
+                            "Type=Application\n"
+                            "Name=Strawalarm\n"
+                            f"Exec={exe} --hidden\n"
+                            "Icon=strawalarm\n"
+                            "X-GNOME-Autostart-enabled=true\n")
+                self.log("Autostart enabled — strawalarm will start "
+                         "hidden in the tray at login.")
+            else:
+                os.unlink(autostart_path())
+                self.log("Autostart disabled.")
+        except OSError as e:
+            QMessageBox.warning(self, "Strawalarm",
+                                f"Could not update autostart: {e}")
+
+    # ---------- armed-state recovery ----------
+
+    def check_recovery(self, interactive=True):
+        """Offer to restore a session that died with the last process
+        (crash, logout, kill). In --hidden mode, unambiguous alarm-only
+        plans re-arm silently with a notification."""
+        data = state.load()
+        if not data:
+            return
+        plan = state.plan_recovery(data)
+        kind = plan["kind"]
+        if kind == "active":
+            return  # another strawalarm process owns the session
+        if kind == "stale":
+            state.clear()
+            return
+        if kind == "missed":
+            notify.send("Strawalarm: alarm was missed", plan["message"],
+                        critical=True)
+            self.log(plan["message"])
+            if interactive:
+                QMessageBox.warning(self, "Strawalarm", plan["message"])
+            state.clear()
+            return
+        # rearm-able
+        idx = self.player_combo.findData(plan.get("player"))
+        if idx >= 0:
+            self.player_combo.setCurrentIndex(idx)
+        if not interactive:
+            if plan["sleep"] is None:  # unambiguous: alarm-only
+                error = self.start_session(plan["sleep"], plan["wake"])
+                if error:
+                    notify.send("Strawalarm: could not restore the alarm",
+                                error, critical=True)
+                else:
+                    notify.send("Strawalarm restored",
+                                f"Re-armed: {plan['message']}.")
+            else:
+                notify.send("Strawalarm was interrupted while armed",
+                            f"Open strawalarm to restore: "
+                            f"{plan['message']}.")
+            return
+        answer = QMessageBox.question(
+            self, "Strawalarm",
+            f"Strawalarm was interrupted while armed:\n"
+            f"{plan['message']}\n\nRe-arm now?")
+        if answer == QMessageBox.StandardButton.Yes:
+            error = self.start_session(plan["sleep"], plan["wake"])
+            if error:
+                QMessageBox.warning(self, "Strawalarm", error)
+        else:
+            state.clear()
 
     # ---------- settings persistence ----------
 
@@ -761,6 +848,12 @@ class RemoteControl(QObject):
         return "OK"
 
 
+def autostart_path() -> str:
+    config = os.environ.get("XDG_CONFIG_HOME",
+                            os.path.expanduser("~/.config"))
+    return os.path.join(config, "autostart", "strawalarm.desktop")
+
+
 def app_icon():
     try:
         ref = resources.files("strawalarm").joinpath("data/strawalarm.svg")
@@ -785,11 +878,14 @@ def main():
         QDBusInterface(DBUS_SERVICE, "/", DBUS_IFACE, bus).call("show")
         print("strawalarm is already running — raised its window instead.")
         sys.exit(0)
+    hidden = "--hidden" in sys.argv
     win = MainWindow()
     remote = RemoteControl(win)
     bus.registerObject("/", remote,
                        QDBusConnection.RegisterOption.ExportAllSlots)
-    win.show()
+    if not hidden:
+        win.show()
+    win.check_recovery(interactive=not hidden)
     rc = app.exec()
     # Deterministic teardown: force-destroy the C++ objects while the
     # interpreter is fully alive. Letting PySide's atexit hook destroy

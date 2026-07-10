@@ -17,7 +17,7 @@ import re
 import time
 from dataclasses import dataclass
 
-from . import notify, power
+from . import notify, power, state
 from .mpris import Player
 
 DEFAULT_ALARM_VOLUME = 0.5
@@ -219,6 +219,7 @@ class Session:
             if self.inhibitor.acquire("Sleep timer running"):
                 self.log("Blocking system sleep while the music plays.")
             self.phase = Phase.SLEEP_WAIT
+            state.save(self)
         else:
             self._arm_wake()
 
@@ -229,6 +230,7 @@ class Session:
         self._cleanup_power(clear_wake=True)
         self.cancelled = True
         self.phase = Phase.DONE
+        state.clear()
         self.log("Cancelled.")
 
     def snooze(self) -> bool:
@@ -280,6 +282,7 @@ class Session:
                 self.log(f"Error re-arming: {arm_error}")
         self.error = str(e)
         self.phase = Phase.ERROR
+        state.clear()
         notify.send("Strawalarm: session failed", str(e), critical=True)
         self._cleanup_power(clear_wake=True)
 
@@ -439,6 +442,7 @@ class Session:
             self._arm_wake()
         else:
             self.phase = Phase.DONE
+            state.clear()
         if self.sleep and self.sleep.suspend_after:
             self.log("Suspending the machine now.")
             power.suspend()
@@ -472,6 +476,7 @@ class Session:
                              "(PowerDevil/rtcwake) — the alarm can't wake "
                              "a suspended machine.")
         self.phase = Phase.WAKE_WAIT
+        state.save(self)
 
     def _sanity_check_environment(self):
         """Warn at arm time about setups that silently shift alarms."""
@@ -584,6 +589,7 @@ class Session:
                         f"Next alarm: {self.wake_at:%a %H:%M}.")
         else:
             self.phase = Phase.DONE
+            state.clear()
 
 
 PREVIEW_FADE = 3

@@ -147,6 +147,15 @@ class FakePower:
 
 
 @pytest.fixture(autouse=True)
+def state_home(tmp_path, monkeypatch):
+    """Every test gets its own XDG state dir — session persistence and
+    file logging never touch the real home."""
+    home = tmp_path / "xdg-state"
+    monkeypatch.setenv("XDG_STATE_HOME", str(home))
+    return home
+
+
+@pytest.fixture(autouse=True)
 def fnotify(monkeypatch):
     """No test may fire real desktop notifications."""
     sent = []

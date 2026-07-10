@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.0 — 2026-07-10
+
+Phase 2 of the [roadmap](ROADMAP.md), first half: durability.
+
+- Armed sessions persist to `~/.local/state/strawalarm/armed.json`
+  (spec + deadlines; cleared on clean finish/cancel). On launch the GUI
+  offers one-click re-arm with the correct remaining time; missed
+  alarms are reported explicitly instead of vanishing.
+- "Start with the desktop (hidden in the tray)" toggle manages an XDG
+  autostart entry; started with `--hidden`, unambiguous recoveries
+  (alarm-only, recurring) re-arm automatically with a notification —
+  a reboot mid-recurrence no longer needs any interaction.
+- The state file format is versioned and designed to become the
+  daemon's state format (roadmap 2.3).
+
 ## 0.8.0 — 2026-07-10
 
 Phase 1 of the [roadmap](ROADMAP.md): trust.
