@@ -42,13 +42,22 @@ Manual alternative: `pipx run build && pipx run twine upload dist/*`.
 
 ## 2. Fedora COPR — `dnf install` for your own distro
 
-1. Log in at https://copr.fedorainfracloud.org with your Fedora (FAS)
-   account, create project `strawalarm`.
-2. Write a spec file (`%pyproject_wheel`-based; Requires: playerctl,
-   python3-pyside6; install the .desktop file and icon in %install).
-3. Point COPR at the GitHub repo with a webhook ("custom" or
-   "make srpm" source) so each tag rebuilds automatically.
-4. Users: `dnf copr enable tengro/strawalarm && dnf install strawalarm`.
+The spec (`packaging/strawalarm.spec`) and the SRPM recipe
+(`.copr/Makefile`) live in the repo. Setup:
+
+1. Log in at https://copr.fedorainfracloud.org with a Fedora (FAS)
+   account (create at https://accounts.fedoraproject.org).
+2. New Project: name `strawalarm`, chroots `fedora-44-x86_64` +
+   `fedora-rawhide-x86_64` (add aarch64 if feeling generous).
+3. In the project: Packages → New Package: name `strawalarm`,
+   source type **SCM**, clone URL
+   `https://github.com/Tengro/strawalarm.git`, SRPM build method
+   **make srpm**. Save, then "Rebuild".
+4. Auto-rebuild on push: project Settings → Integrations → copy the
+   webhook URL into GitHub repo Settings → Webhooks (push events).
+5. Per release: bump Version + %changelog in the spec (part of the
+   release checklist).
+6. Users: `dnf copr enable tengro/strawalarm && dnf install strawalarm`.
 
 ## 3. AUR — for Arch users (cheap to add, or let a user adopt it)
 

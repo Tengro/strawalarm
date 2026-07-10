@@ -23,8 +23,9 @@ mode, not just its happy path.
 
 ## Release checklist
 
-1. Update `CHANGELOG.md`; bump the version in `pyproject.toml` and
-   `src/strawalarm/__init__.py`; add a `<release>` entry to
+1. Update `CHANGELOG.md`; bump the version in `pyproject.toml`,
+   `src/strawalarm/__init__.py` and `packaging/strawalarm.spec`
+   (Version + a %changelog entry); add a `<release>` entry to
    `data/io.github.tengro.strawalarm.metainfo.xml`.
 2. Commit, then `git tag vX.Y.Z && git push --follow-tags`.
 3. `gh release create vX.Y.Z --title ... --notes ...` — publishing the
