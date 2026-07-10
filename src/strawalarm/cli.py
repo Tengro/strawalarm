@@ -2,8 +2,10 @@
 
 import argparse
 import datetime as dt
+import json
 import select
 import signal
+import subprocess
 import sys
 import time
 
@@ -125,6 +127,24 @@ def cmd_gui(_args):
     gui_main()
 
 
+REMOTE_DEST = "io.github.tengro.strawalarm"
+
+
+def cmd_remote(args):
+    """Control the running GUI over D-Bus (works from KDE Connect too)."""
+    r = subprocess.run(
+        ["busctl", "--user", "--json=short", "call",
+         REMOTE_DEST, "/", REMOTE_DEST, args.method],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit("The strawalarm GUI is not running — remote commands "
+                 "control a running GUI instance.")
+    reply = json.loads(r.stdout)["data"][0]
+    print(reply)
+    if reply.startswith("Error:"):
+        sys.exit(1)
+
+
 def add_common(sp):
     sp.add_argument("--player", metavar="NAME",
                     help="MPRIS player to control (default: auto-pick)")
@@ -192,6 +212,14 @@ def main():
 
     pg = sub.add_parser("gui", help="launch the graphical interface")
     pg.set_defaults(func=cmd_gui)
+
+    for name, helptext in (
+            ("arm", "remote: arm the running GUI with its saved settings"),
+            ("snooze", "remote: snooze the GUI's ringing alarm"),
+            ("cancel", "remote: cancel the GUI's armed timer/alarm"),
+            ("status", "remote: show what the GUI session is doing")):
+        pr = sub.add_parser(name, help=helptext)
+        pr.set_defaults(func=cmd_remote, method=name)
 
     args = p.parse_args()
     if args.cmd == "sleep":

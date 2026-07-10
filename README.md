@@ -44,8 +44,14 @@ without it, the alarm simply resumes playback.
   fallback elsewhere). After the alarm it keeps the system awake for
   a configurable window (default 30 min) so it doesn't doze off
   mid-morning-playlist.
-- No daemon, no config files, no Python dependencies beyond Qt for the
-  GUI. Talks to the player through `playerctl` and `busctl`.
+- **Remembers your setup**: the GUI restores all last-used values on
+  launch, so re-arming your usual night is just pressing Start
+- **Remote control**: the GUI exposes a D-Bus service; `strawalarm
+  arm|snooze|cancel|status` control it from any shell — wire those
+  into KDE Connect's "Run commands" plugin and you can arm, snooze or
+  stop the alarm from your phone (see below)
+- No daemon, no Python dependencies beyond Qt for the GUI. Talks to
+  the player through `playerctl` and `busctl`.
 
 ## Requirements
 
@@ -101,6 +107,32 @@ several players running, pick one with `--player NAME`.
 
 The CLI runs in the foreground (Ctrl+C cancels). To detach:
 `systemd-run --user strawalarm wake 07:30 --playlist Morning`.
+
+### Remote control (phone via KDE Connect)
+
+With the GUI running (or hidden in the tray), these work from any
+shell — they talk to it over D-Bus:
+
+```sh
+strawalarm arm      # arm with the GUI's saved settings
+strawalarm status   # e.g. "Alarm in 7:59:12"
+strawalarm snooze   # snooze a ringing alarm
+strawalarm cancel   # cancel the armed timer/alarm
+```
+
+To get buttons on your phone: KDE Connect settings → your phone →
+**Run commands** plugin → add commands like
+
+| Name        | Command                              |
+|-------------|--------------------------------------|
+| Arm alarm   | `$HOME/.local/bin/strawalarm arm`    |
+| Snooze      | `$HOME/.local/bin/strawalarm snooze` |
+| Stop alarm  | `$HOME/.local/bin/strawalarm cancel` |
+
+They then appear in the phone app under "Run command" (and on Android
+as quick-tile/lock-screen shortcuts) — snooze from bed achieved.
+Starting the GUI twice is safe: the second instance just raises the
+first one's window.
 
 ## Notes / known limits
 

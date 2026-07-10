@@ -7,7 +7,8 @@ from importlib import resources
 
 import shiboken6
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import ClassInfo, QObject, QSettings, Qt, QTimer, Slot
+from PySide6.QtDBus import QDBusConnection, QDBusInterface
 from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout,
@@ -22,6 +23,8 @@ from .core import (SNOOZABLE, Phase, Session, SleepSpec, WakeSpec,
 from .mpris import PROXY_PREFIXES, Player
 
 TICK_MS = 250
+DBUS_SERVICE = "io.github.tengro.strawalarm"
+DBUS_IFACE = "io.github.tengro.strawalarm"
 
 
 class MainWindow(QMainWindow):
@@ -36,6 +39,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._build_ui())
         self._build_tray()
         self.refresh_players()
+        self._restore_settings()
 
     def _build_tray(self):
         self.tray = QSystemTrayIcon(app_icon(), self)
@@ -82,6 +86,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return
             self.session.cancel()
+        self._save_settings()
         self._quitting = True
         QApplication.quit()
 
@@ -355,6 +360,92 @@ class MainWindow(QMainWindow):
             hint = "→ enter a time like 07:30 or a duration like 8h"
         self.wake_hint.setText(hint)
 
+    # ---------- settings persistence ----------
+
+    def _save_settings(self):
+        s = QSettings("strawalarm", "strawalarm")
+        s.setValue("player", self.player_combo.currentData() or "")
+        s.setValue("sleep/enabled", self.sleep_group.isChecked())
+        mode = ("tracks" if self.radio_tracks.isChecked()
+                else "at" if self.radio_sleep_at.isChecked() else "duration")
+        s.setValue("sleep/mode", mode)
+        s.setValue("sleep/duration", self.duration_edit.text())
+        s.setValue("sleep/at", self.sleep_at_edit.text())
+        s.setValue("sleep/tracks", self.tracks_spin.value())
+        s.setValue("sleep/fade_on", self.fade_out_check.isChecked())
+        s.setValue("sleep/fade", self.fade_out_spin.value())
+        s.setValue("sleep/pause", self.pause_check.isChecked())
+        s.setValue("sleep/suspend", self.suspend_check.isChecked())
+        s.setValue("wake/enabled", self.wake_group.isChecked())
+        s.setValue("wake/mode", "after" if self.radio_wake_after.isChecked()
+                   else "at")
+        s.setValue("wake/at", self.wake_at_edit.text())
+        s.setValue("wake/after", self.wake_after_edit.text())
+        s.setValue("wake/days", ",".join(
+            str(i) for i, b in enumerate(self.day_buttons) if b.isChecked()))
+        s.setValue("wake/playlist", self.playlist_combo.currentData() or "")
+        s.setValue("wake/volume_on", self.volume_check.isChecked())
+        s.setValue("wake/volume", self.volume_slider.value())
+        s.setValue("wake/fade_on", self.fade_in_check.isChecked())
+        s.setValue("wake/fade", self.fade_in_spin.value())
+        s.setValue("wake/wake_system", self.wake_system_check.isChecked())
+        s.setValue("wake/lead", self.wake_lead_spin.value())
+        s.setValue("wake/keep_awake", self.keep_awake_spin.value())
+        s.setValue("wake/snooze", self.snooze_spin.value())
+
+    def _restore_settings(self):
+        s = QSettings("strawalarm", "strawalarm")
+        if not s.contains("sleep/mode"):
+            return  # first run — keep the built-in defaults
+        player = s.value("player", "", type=str)
+        idx = self.player_combo.findData(player) if player else -1
+        if idx >= 0:
+            self.player_combo.setCurrentIndex(idx)  # re-populates playlists
+        self.sleep_group.setChecked(s.value("sleep/enabled", True, type=bool))
+        mode = s.value("sleep/mode", "duration", type=str)
+        {"tracks": self.radio_tracks, "at": self.radio_sleep_at,
+         "duration": self.radio_duration}.get(
+            mode, self.radio_duration).setChecked(True)
+        self.duration_edit.setText(s.value("sleep/duration", "1h30m",
+                                           type=str))
+        self.sleep_at_edit.setText(s.value("sleep/at", "", type=str))
+        self.tracks_spin.setValue(s.value("sleep/tracks", 3, type=int))
+        self.fade_out_check.setChecked(s.value("sleep/fade_on", True,
+                                               type=bool))
+        self.fade_out_spin.setValue(s.value("sleep/fade", 30, type=int))
+        self.pause_check.setChecked(s.value("sleep/pause", False, type=bool))
+        if self.suspend_check.isEnabled():
+            self.suspend_check.setChecked(s.value("sleep/suspend", False,
+                                                  type=bool))
+        self.wake_group.setChecked(s.value("wake/enabled", True, type=bool))
+        if s.value("wake/mode", "at", type=str) == "after":
+            self.radio_wake_after.setChecked(True)
+        else:
+            self.radio_wake_at.setChecked(True)
+        self.wake_at_edit.setText(s.value("wake/at", "07:30", type=str))
+        self.wake_after_edit.setText(s.value("wake/after", "8h", type=str))
+        days = s.value("wake/days", "", type=str)
+        for i in (int(d) for d in days.split(",") if d.strip().isdigit()):
+            if 0 <= i < 7:
+                self.day_buttons[i].setChecked(True)
+        playlist = s.value("wake/playlist", "", type=str)
+        idx = self.playlist_combo.findData(playlist) if playlist else -1
+        if idx >= 0:
+            self.playlist_combo.setCurrentIndex(idx)
+        self.volume_check.setChecked(s.value("wake/volume_on", True,
+                                             type=bool))
+        self.volume_slider.setValue(s.value("wake/volume", 40, type=int))
+        self.fade_in_check.setChecked(s.value("wake/fade_on", True,
+                                              type=bool))
+        self.fade_in_spin.setValue(s.value("wake/fade", 30, type=int))
+        if self.wake_system_check.isEnabled():
+            self.wake_system_check.setChecked(
+                s.value("wake/wake_system", True, type=bool))
+        self.wake_lead_spin.setValue(s.value("wake/lead", 3, type=int))
+        self.keep_awake_spin.setValue(s.value("wake/keep_awake", 30,
+                                              type=int))
+        self.snooze_spin.setValue(s.value("wake/snooze", 10, type=int))
+
     # ---------- data ----------
 
     def log(self, msg):
@@ -415,50 +506,12 @@ class MainWindow(QMainWindow):
             self.session.cancel()
             self.finish_session()
             return
-        player = self.current_player()
-        if not player:
-            QMessageBox.warning(self, "Strawalarm",
-                                "No MPRIS player selected.")
-            return
-        if not self.sleep_group.isChecked() and not self.wake_group.isChecked():
-            QMessageBox.warning(self, "Strawalarm",
-                                "Enable the sleep timer, the alarm, or both.")
-            return
-
-        sleep = wake = None
         try:
-            if self.sleep_group.isChecked():
-                fade = self.fade_out_spin.value() \
-                    if self.fade_out_check.isChecked() else 0
-                sleep = SleepSpec(fade=fade,
-                                  pause=self.pause_check.isChecked(),
-                                  suspend_after=self.suspend_check.isChecked())
-                if self.radio_tracks.isChecked():
-                    sleep.tracks = self.tracks_spin.value()
-                elif self.radio_duration.isChecked():
-                    sleep.seconds = parse_duration(self.duration_edit.text())
-                else:
-                    t = parse_wake_time(self.sleep_at_edit.text())
-                    sleep.seconds = max(
-                        1, int((t - dt.datetime.now()).total_seconds()))
-                if not sleep.tracks and sleep.seconds == 0:
-                    raise ValueError("Sleep duration is zero.")
-            if self.wake_group.isChecked():
-                if self.radio_wake_at.isChecked():
-                    time_spec = self.wake_at_edit.text().strip()
-                    parse_wake_time(time_spec)  # validate now, arm later
-                else:
-                    secs = parse_duration(self.wake_after_edit.text())
-                    if secs >= 24 * 3600:
-                        raise ValueError("Wake delay must be under 24 hours.")
-                    target = dt.datetime.now() + dt.timedelta(seconds=secs)
-                    time_spec = target.strftime("%H:%M:%S")
+            sleep, wake = self.build_specs()
         except ValueError as e:
             QMessageBox.warning(self, "Strawalarm", str(e))
             return
-        if self.wake_group.isChecked() \
-                and self.wake_system_check.isChecked() \
-                and power.wake_backend() is None:
+        if wake and wake.wake_system and power.wake_backend() is None:
             answer = QMessageBox.warning(
                 self, "Strawalarm",
                 "Wake-from-suspend is unavailable right now, so if the PC "
@@ -471,7 +524,41 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        error = self.start_session(sleep, wake)
+        if error:
+            QMessageBox.warning(self, "Strawalarm", error)
+
+    def build_specs(self):
+        """Specs from the current form values. Raises ValueError."""
+        if not self.sleep_group.isChecked() and not self.wake_group.isChecked():
+            raise ValueError("Enable the sleep timer, the alarm, or both.")
+        sleep = wake = None
+        if self.sleep_group.isChecked():
+            fade = self.fade_out_spin.value() \
+                if self.fade_out_check.isChecked() else 0
+            sleep = SleepSpec(fade=fade,
+                              pause=self.pause_check.isChecked(),
+                              suspend_after=self.suspend_check.isChecked())
+            if self.radio_tracks.isChecked():
+                sleep.tracks = self.tracks_spin.value()
+            elif self.radio_duration.isChecked():
+                sleep.seconds = parse_duration(self.duration_edit.text())
+            else:
+                t = parse_wake_time(self.sleep_at_edit.text())
+                sleep.seconds = max(
+                    1, int((t - dt.datetime.now()).total_seconds()))
+            if not sleep.tracks and sleep.seconds == 0:
+                raise ValueError("Sleep duration is zero.")
         if self.wake_group.isChecked():
+            if self.radio_wake_at.isChecked():
+                time_spec = self.wake_at_edit.text().strip()
+                parse_wake_time(time_spec)  # validate now, arm later
+            else:
+                secs = parse_duration(self.wake_after_edit.text())
+                if secs >= 24 * 3600:
+                    raise ValueError("Wake delay must be under 24 hours.")
+                target = dt.datetime.now() + dt.timedelta(seconds=secs)
+                time_spec = target.strftime("%H:%M:%S")
             wake = WakeSpec(
                 time_spec=time_spec,
                 playlist=self.playlist_combo.currentData(),
@@ -484,16 +571,23 @@ class MainWindow(QMainWindow):
                 keep_awake=self.keep_awake_spin.value() * 60,
                 snooze=self.snooze_spin.value() * 60,
                 weekdays=self._selected_days())
+        return sleep, wake
 
+    def start_session(self, sleep, wake):
+        """Arm a session. Returns an error string or None on success."""
+        player = self.current_player()
+        if not player:
+            return "No MPRIS player selected."
         self.session = Session(player, sleep=sleep, wake=wake, log=self.log)
         try:
             self.session.start()
         except (RuntimeError, LookupError, ValueError) as e:
-            QMessageBox.warning(self, "Strawalarm", str(e))
             self.session = None
-            return
+            return str(e)
+        self._save_settings()
         self.set_running(True)
         self.timer.start()
+        return None
 
     def on_tick(self):
         if not self.session:
@@ -549,6 +643,7 @@ class MainWindow(QMainWindow):
             self.tray_snooze.setEnabled(False)
 
     def closeEvent(self, event):
+        self._save_settings()
         if self._quitting:
             event.accept()
             return
@@ -572,6 +667,59 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
 
+@ClassInfo({"D-Bus Interface": DBUS_IFACE})
+class RemoteControl(QObject):
+    """Session-bus remote control for the running GUI — lets the CLI
+    (and, through KDE Connect's Run Commands plugin, a phone) arm,
+    snooze, cancel and query the alarm."""
+
+    def __init__(self, win):
+        super().__init__()
+        self.win = win
+
+    @Slot(result=str)
+    def arm(self):
+        w = self.win
+        if w.session and w.session.active:
+            return "Already armed: " + w.session.status()[0]
+        try:
+            sleep, wake = w.build_specs()
+        except ValueError as e:
+            return f"Error: {e}"
+        error = w.start_session(sleep, wake)
+        if error:
+            return f"Error: {error}"
+        return "Armed — " + self.status()
+
+    @Slot(result=str)
+    def snooze(self):
+        if self.win.session and self.win.session.snooze():
+            return "Snoozed."
+        return "No ringing alarm to snooze."
+
+    @Slot(result=str)
+    def cancel(self):
+        if self.win.session and self.win.session.active:
+            self.win.session.cancel()
+            return "Cancelled."
+        return "Nothing armed."
+
+    @Slot(result=str)
+    def status(self):
+        if not self.win.session or not self.win.session.active:
+            return "Idle."
+        text, countdown = self.win.session.status()
+        return text + (f" {fmt_delta(countdown)}"
+                       if countdown is not None else "")
+
+    @Slot(result=str)
+    def show(self):
+        self.win.show()
+        self.win.raise_()
+        self.win.activateWindow()
+        return "OK"
+
+
 def app_icon():
     try:
         ref = resources.files("strawalarm").joinpath("data/strawalarm.svg")
@@ -589,7 +737,17 @@ def main():
     # The window can hide to the tray while a timer is armed, so quitting
     # is always explicit (closeEvent / quit_app call QApplication.quit()).
     app.setQuitOnLastWindowClosed(False)
+    bus = QDBusConnection.sessionBus()
+    if not bus.registerService(DBUS_SERVICE):
+        # Another instance owns the remote-control service: raise its
+        # window instead of starting a confusing second copy.
+        QDBusInterface(DBUS_SERVICE, "/", DBUS_IFACE, bus).call("show")
+        print("strawalarm is already running — raised its window instead.")
+        sys.exit(0)
     win = MainWindow()
+    remote = RemoteControl(win)
+    bus.registerObject("/", remote,
+                       QDBusConnection.RegisterOption.ExportAllSlots)
     win.show()
     rc = app.exec()
     # Deterministic teardown: force-destroy the C++ objects while the
@@ -599,6 +757,7 @@ def main():
     # Plain `del app` is not enough — PySide holds an internal reference.
     win.hide()
     win.tray.hide()
+    shiboken6.delete(remote)
     shiboken6.delete(win)
     shiboken6.delete(app)
     sys.exit(rc)
