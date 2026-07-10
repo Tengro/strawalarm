@@ -562,6 +562,84 @@ class Session:
             self.phase = Phase.DONE
 
 
+PREVIEW_FADE = 3
+PREVIEW_PLAY = 10
+
+
+class Preview:
+    """Compressed dry-run of the alarm path so users can verify
+    playlist, volume and fades in ~15 seconds instead of betting a
+    morning on it. Snapshots the player state and restores it after."""
+
+    def __init__(self, player: Player, playlist: str | None = None,
+                 volume: int | None = None, log=None):
+        self.player = player
+        self.playlist = playlist
+        self.volume = volume
+        self.log = log or (lambda msg: None)
+        self.active = False
+        self._end = 0.0
+
+    def start(self):
+        p = self.player
+        if not p.running():
+            raise RuntimeError(f"{p.name} is not running.")
+        self._prev_volume = p.volume()
+        self._prev_status = p.status()
+        self._prev_playlist = (p.active_playlist()
+                               if p.has_playlists() else None)
+        if self.volume is not None:
+            self._target = max(0.0, min(1.0, self.volume / 100))
+        else:
+            self._target = self._prev_volume or DEFAULT_ALARM_VOLUME
+        path = name = None
+        if self.playlist and p.has_playlists():
+            # resolve BEFORE touching the player — a failed lookup must
+            # not leave the volume muted
+            path, name = p.find_playlist(self.playlist)
+        p.set_volume(0.0)
+        if path:
+            p.activate_playlist(path)
+            self.log(f'Preview: "{name}" at {round(self._target * 100)}%, '
+                     f'{PREVIEW_FADE}s fade...')
+        else:
+            p.play()
+            self.log(f"Preview: resuming at {round(self._target * 100)}%, "
+                     f"{PREVIEW_FADE}s fade...")
+        self._t0 = time.time()
+        self._end = self._t0 + PREVIEW_FADE + PREVIEW_PLAY
+        self.active = True
+
+    def tick(self):
+        if not self.active:
+            return
+        now = time.time()
+        k = min(1.0, (now - self._t0) / PREVIEW_FADE)
+        self.player.set_volume(self._target * k)
+        if now >= self._end:
+            self.finish()
+
+    def finish(self):
+        """Restore the player to its pre-preview state (playlist,
+        play/pause status, volume — track position is not preserved)."""
+        if not self.active:
+            return
+        self.active = False
+        p = self.player
+        if self._prev_playlist:
+            p.activate_playlist(self._prev_playlist)
+        if self._prev_status == "Paused":
+            p.pause()
+        elif self._prev_status != "Playing":
+            p.stop()
+        p.set_volume(self._prev_volume if self._prev_volume is not None
+                     else self._target)
+        self.log("Preview finished — player state restored.")
+
+    def status(self):
+        return ("Previewing the alarm", max(0.0, self._end - time.time()))
+
+
 def run_blocking(session: Session, interval: float = 0.25):
     """Drive a session to completion (CLI mode)."""
     try:

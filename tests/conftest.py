@@ -77,6 +77,9 @@ class FakePlayer:
     def has_playlists(self):
         return self._has_playlists
 
+    def active_playlist(self):
+        return "/pl/previous"
+
     def find_playlist(self, query):
         if query == "Morning":
             return ("/pl/1", "Morning")

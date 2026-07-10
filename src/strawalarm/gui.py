@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget)
 
 from . import __version__, filelog, power
-from .core import (SNOOZABLE, Phase, Session, SleepSpec, WakeSpec,
-                   fmt_delta, next_occurrence, parse_duration,
+from .core import (SNOOZABLE, Phase, Preview, Session, SleepSpec,
+                   WakeSpec, fmt_delta, next_occurrence, parse_duration,
                    parse_wake_time)
 from .mpris import PROXY_PREFIXES, Player
 
@@ -31,10 +31,14 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.session = None
+        self.preview = None
         self._quitting = False
         self.timer = QTimer(self)
         self.timer.setInterval(TICK_MS)
         self.timer.timeout.connect(self.on_tick)
+        self.preview_timer = QTimer(self)
+        self.preview_timer.setInterval(100)
+        self.preview_timer.timeout.connect(self.on_preview_tick)
         self.setWindowTitle("Strawalarm")
         self.setCentralWidget(self._build_ui())
         self._build_tray()
@@ -76,6 +80,45 @@ class MainWindow(QMainWindow):
     def do_snooze(self):
         if self.session:
             self.session.snooze()
+
+    # ---------- alarm preview ----------
+
+    def on_preview(self):
+        if self.preview and self.preview.active:  # second click stops it
+            self.preview.finish()
+            return
+        player = self.current_player()
+        if not player:
+            QMessageBox.warning(self, "Strawalarm",
+                                "No MPRIS player selected.")
+            return
+        self.preview = Preview(
+            player,
+            playlist=self.playlist_combo.currentData(),
+            volume=self.volume_slider.value()
+            if self.volume_check.isChecked() else None,
+            log=self.log)
+        try:
+            self.preview.start()
+        except (RuntimeError, LookupError) as e:
+            QMessageBox.warning(self, "Strawalarm", str(e))
+            self.preview = None
+            return
+        self.preview_btn.setText("Stop preview")
+        self.start_btn.setEnabled(False)
+        self.preview_timer.start()
+
+    def on_preview_tick(self):
+        if self.preview:
+            self.preview.tick()
+            text, countdown = self.preview.status()
+            self.phase_label.setText(f"{text} ({fmt_delta(countdown)})")
+        if not self.preview or not self.preview.active:
+            self.preview_timer.stop()
+            self.preview = None
+            self.preview_btn.setText("Preview")
+            self.start_btn.setEnabled(True)
+            self.phase_label.setText("Ready.")
 
     def quit_app(self):
         if self.session and self.session.active:
@@ -289,6 +332,13 @@ class MainWindow(QMainWindow):
         self.snooze_btn.setEnabled(False)
         self.snooze_btn.clicked.connect(self.do_snooze)
         btn_row.addWidget(self.snooze_btn, 1)
+        self.preview_btn = QPushButton("Preview")
+        self.preview_btn.setMinimumHeight(40)
+        self.preview_btn.setToolTip(
+            "Play ~15s of the alarm (playlist, volume, fade) right now, "
+            "then restore the player — verify without waiting for morning")
+        self.preview_btn.clicked.connect(self.on_preview)
+        btn_row.addWidget(self.preview_btn, 1)
         layout.addLayout(btn_row)
 
         # log
@@ -628,6 +678,7 @@ class MainWindow(QMainWindow):
             w.setEnabled(not running)
         self.start_btn.setText("Cancel" if running else "Start")
         self.tray_cancel.setEnabled(running)
+        self.preview_btn.setEnabled(not running)
         if not running:
             self.snooze_btn.setEnabled(False)
             self.tray_snooze.setEnabled(False)

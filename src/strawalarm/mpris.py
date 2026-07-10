@@ -153,6 +153,13 @@ class Player:
         return [(tokens[i], tokens[i + 1])
                 for i in range(2, len(tokens) - 1, 3)]
 
+    def active_playlist(self) -> str | None:
+        """Object path of the currently active playlist, if any."""
+        v = self._prop(PLAYLISTS_IFACE, "ActivePlaylist")
+        if v and v[0] == "true":
+            return v[1]
+        return None
+
     def find_playlist(self, query: str) -> tuple[str, str]:
         pls = self.playlists()
         q = query.lower()
