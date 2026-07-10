@@ -399,8 +399,10 @@ class Session:
             power.suspend()
 
     def _arm_wake(self):
-        self.wake_at = next_occurrence(self.wake.time_spec,
-                                       self.wake.weekdays)
+        # base derives from time.time() so tests can fake one clock
+        self.wake_at = next_occurrence(
+            self.wake.time_spec, self.wake.weekdays,
+            base=dt.datetime.fromtimestamp(time.time()))
         delta = self.wake_at.timestamp() - time.time()
         what = f'playlist "{self.wake.playlist}"' if self.wake.playlist \
             else "resume playback"

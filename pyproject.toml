@@ -22,6 +22,7 @@ dependencies = []
 
 [project.optional-dependencies]
 gui = ["PySide6"]
+dev = ["pytest", "pytest-cov", "ruff"]
 
 [project.scripts]
 strawalarm = "strawalarm.cli:main"
