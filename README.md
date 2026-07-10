@@ -172,6 +172,12 @@ first one's window.
 - Without `--fade`, `--tracks N` stops the instant track N+1 starts, so
   you may hear a sub-second blip; with a fade it ends cleanly.
 
+## Project direction
+
+Where this is headed — phases, risks, design sketches and the decision
+log — lives in [ROADMAP.md](ROADMAP.md). Publishing/packaging plans are
+in [PUBLISHING.md](PUBLISHING.md).
+
 ## License
 
 MIT
