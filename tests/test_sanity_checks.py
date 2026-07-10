@@ -32,7 +32,7 @@ class TestRtcLocaltime:
         monkeypatch.setattr(core.power, "rtc_is_localtime", lambda: True)
         s = make(player, fpower, clock, wake=WakeSpec(time_spec="+600s"))
         s.start()
-        assert any("local time" in line for line in s.logs)
+        assert any("LOCAL time" in line for line in s.logs)
         assert any(n[2] and "RTC" in n[0] for n in fnotify)
         s.cancel()
 
