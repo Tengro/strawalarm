@@ -193,7 +193,7 @@ class Session:
                      "PC suspends, the alarm will NOT wake it. (PowerDevil "
                      "usually loses CAP_WAKE_ALARM after a package update; "
                      "see the strawalarm README for the permanent fix.)")
-            notify.send("Strawalarm: wake-from-suspend unavailable",
+            notify.send("Straw Alarm: wake-from-suspend unavailable",
                         "If the PC suspends, the alarm will not wake it. "
                         "See the README for the CAP_WAKE_ALARM fix.",
                         critical=True)
@@ -271,7 +271,7 @@ class Session:
             return
         if self.recurring:
             # Never let one bad morning kill the whole recurrence.
-            notify.send("Strawalarm: alarm failed",
+            notify.send("Straw Alarm: alarm failed",
                         f"{e} — re-armed for the next scheduled day.",
                         critical=True)
             try:
@@ -283,7 +283,7 @@ class Session:
         self.error = str(e)
         self.phase = Phase.ERROR
         state.clear()
-        notify.send("Strawalarm: session failed", str(e), critical=True)
+        notify.send("Straw Alarm: session failed", str(e), critical=True)
         self._cleanup_power(clear_wake=True)
 
     @property
@@ -485,7 +485,7 @@ class Session:
                    "Windows setup?) — the RTC wake may fire hours off. "
                    "Consider 'timedatectl set-local-rtc 0'.")
             self.log(f"Warning: {msg}")
-            notify.send("Strawalarm: RTC runs in local time", msg,
+            notify.send("Straw Alarm: RTC runs in local time", msg,
                         critical=True)
         start = dt.datetime.fromtimestamp(time.time())
         if crosses_dst(start, self.wake_at):
@@ -493,7 +493,7 @@ class Session:
                    f"{self.wake_at:%a %H:%M} — double-check the alarm "
                    "lands on the wall-clock time you expect.")
             self.log(f"Warning: {msg}")
-            notify.send("Strawalarm: DST change before the alarm", msg)
+            notify.send("Straw Alarm: DST change before the alarm", msg)
 
     def _reach_wake_time(self, now):
         if self.player.running():
@@ -585,7 +585,7 @@ class Session:
             self.log("Recurring alarm — re-arming for the next "
                      "scheduled day.")
             self._arm_wake()
-            notify.send("Strawalarm re-armed",
+            notify.send("Straw Alarm re-armed",
                         f"Next alarm: {self.wake_at:%a %H:%M}.")
         else:
             self.phase = Phase.DONE

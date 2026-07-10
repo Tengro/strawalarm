@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=Strawalarm
+Name=Straw Alarm
 GenericName=Sleep Timer and Music Alarm
 Comment=Stop your music player after a timer and wake up to a playlist (MPRIS2)
 Exec=strawalarm-gui

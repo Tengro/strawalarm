@@ -60,7 +60,7 @@ class Inhibitor:
         # (screen dimming, screen-off) alone — the display should still
         # fade while the sleep-timer music plays.
         self._proc = subprocess.Popen(
-            ["systemd-inhibit", "--what=sleep", "--who=Strawalarm",
+            ["systemd-inhibit", "--what=sleep", "--who=Straw Alarm",
              f"--why={why}", "--mode=block", "sleep", "infinity"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             preexec_fn=_die_with_parent)

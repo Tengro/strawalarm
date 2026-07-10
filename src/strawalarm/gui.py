@@ -42,7 +42,7 @@ class MainWindow(QMainWindow):
         self.preview_timer = QTimer(self)
         self.preview_timer.setInterval(100)
         self.preview_timer.timeout.connect(self.on_preview_tick)
-        self.setWindowTitle("Strawalarm")
+        self.setWindowTitle("Straw Alarm")
         self.setCentralWidget(self._build_ui())
         self._build_tray()
         self.refresh_players()
@@ -62,7 +62,7 @@ class MainWindow(QMainWindow):
         menu.addAction("Quit").triggered.connect(self.quit_app)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self.on_tray_activated)
-        self.tray.setToolTip("Strawalarm — idle")
+        self.tray.setToolTip("Straw Alarm — idle")
         self.tray.show()
 
     def toggle_window(self):
@@ -92,7 +92,7 @@ class MainWindow(QMainWindow):
             return
         player = self.current_player()
         if not player:
-            QMessageBox.warning(self, "Strawalarm",
+            QMessageBox.warning(self, "Straw Alarm",
                                 "No MPRIS player selected.")
             return
         self.preview = Preview(
@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
         try:
             self.preview.start()
         except (RuntimeError, LookupError) as e:
-            QMessageBox.warning(self, "Strawalarm", str(e))
+            QMessageBox.warning(self, "Straw Alarm", str(e))
             self.preview = None
             return
         self.preview_btn.setText("Stop preview")
@@ -127,7 +127,7 @@ class MainWindow(QMainWindow):
         if self.session and self.session.active:
             self.show()
             answer = QMessageBox.question(
-                self, "Strawalarm",
+                self, "Straw Alarm",
                 "A timer or alarm is armed. Quit and cancel it?")
             if answer != QMessageBox.StandardButton.Yes:
                 return
@@ -431,7 +431,7 @@ class MainWindow(QMainWindow):
                 with open(autostart_path(), "w") as f:
                     f.write("[Desktop Entry]\n"
                             "Type=Application\n"
-                            "Name=Strawalarm\n"
+                            "Name=Straw Alarm\n"
                             f"Exec={exe} --hidden\n"
                             "Icon=strawalarm\n"
                             "X-GNOME-Autostart-enabled=true\n")
@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
                 os.unlink(autostart_path())
                 self.log("Autostart disabled.")
         except OSError as e:
-            QMessageBox.warning(self, "Strawalarm",
+            QMessageBox.warning(self, "Straw Alarm",
                                 f"Could not update autostart: {e}")
 
     # ---------- armed-state recovery ----------
@@ -461,11 +461,11 @@ class MainWindow(QMainWindow):
             state.clear()
             return
         if kind == "missed":
-            notify.send("Strawalarm: alarm was missed", plan["message"],
+            notify.send("Straw Alarm: alarm was missed", plan["message"],
                         critical=True)
             self.log(plan["message"])
             if interactive:
-                QMessageBox.warning(self, "Strawalarm", plan["message"])
+                QMessageBox.warning(self, "Straw Alarm", plan["message"])
             state.clear()
             return
         # rearm-able
@@ -476,24 +476,24 @@ class MainWindow(QMainWindow):
             if plan["sleep"] is None:  # unambiguous: alarm-only
                 error = self.start_session(plan["sleep"], plan["wake"])
                 if error:
-                    notify.send("Strawalarm: could not restore the alarm",
+                    notify.send("Straw Alarm: could not restore the alarm",
                                 error, critical=True)
                 else:
-                    notify.send("Strawalarm restored",
+                    notify.send("Straw Alarm restored",
                                 f"Re-armed: {plan['message']}.")
             else:
-                notify.send("Strawalarm was interrupted while armed",
+                notify.send("Straw Alarm was interrupted while armed",
                             f"Open strawalarm to restore: "
                             f"{plan['message']}.")
             return
         answer = QMessageBox.question(
-            self, "Strawalarm",
-            f"Strawalarm was interrupted while armed:\n"
+            self, "Straw Alarm",
+            f"Straw Alarm was interrupted while armed:\n"
             f"{plan['message']}\n\nRe-arm now?")
         if answer == QMessageBox.StandardButton.Yes:
             error = self.start_session(plan["sleep"], plan["wake"])
             if error:
-                QMessageBox.warning(self, "Strawalarm", error)
+                QMessageBox.warning(self, "Straw Alarm", error)
         else:
             state.clear()
 
@@ -647,11 +647,11 @@ class MainWindow(QMainWindow):
         try:
             sleep, wake = self.build_specs()
         except ValueError as e:
-            QMessageBox.warning(self, "Strawalarm", str(e))
+            QMessageBox.warning(self, "Straw Alarm", str(e))
             return
         if wake and wake.wake_system and power.wake_backend() is None:
             answer = QMessageBox.warning(
-                self, "Strawalarm",
+                self, "Straw Alarm",
                 "Wake-from-suspend is unavailable right now, so if the PC "
                 "suspends, the alarm will NOT wake it.\n\n"
                 "PowerDevil usually loses the CAP_WAKE_ALARM capability "
@@ -664,7 +664,7 @@ class MainWindow(QMainWindow):
                 return
         error = self.start_session(sleep, wake)
         if error:
-            QMessageBox.warning(self, "Strawalarm", error)
+            QMessageBox.warning(self, "Straw Alarm", error)
 
     def build_specs(self):
         """Specs from the current form values. Raises ValueError."""
@@ -734,7 +734,7 @@ class MainWindow(QMainWindow):
         text, countdown = self.session.status()
         self.phase_label.setText(text)
         self.tray.setToolTip(
-            f"Strawalarm — {text}"
+            f"Straw Alarm — {text}"
             + (f" {fmt_delta(countdown)}" if countdown is not None else ""))
         self.countdown_label.setEnabled(True)
         self.countdown_label.setText(
@@ -755,9 +755,9 @@ class MainWindow(QMainWindow):
         self.countdown_label.setEnabled(False)
         self.set_running(False)
         self.session = None
-        self.tray.setToolTip("Strawalarm — idle")
+        self.tray.setToolTip("Straw Alarm — idle")
         if not self.isVisible():
-            self.tray.showMessage("Strawalarm", self.phase_label.text(),
+            self.tray.showMessage("Straw Alarm", self.phase_label.text(),
                                   app_icon(), 5000)
 
     def set_running(self, running):
@@ -779,13 +779,13 @@ class MainWindow(QMainWindow):
             if self.tray.isVisible():  # keep the armed timer alive in the tray
                 self.hide()
                 self.tray.showMessage(
-                    "Strawalarm is still armed",
+                    "Straw Alarm is still armed",
                     "Running in the system tray. Click the icon to reopen, "
                     "right-click to cancel or quit.", app_icon(), 5000)
                 event.ignore()
                 return
             answer = QMessageBox.question(
-                self, "Strawalarm",
+                self, "Straw Alarm",
                 "A timer or alarm is armed. Quit and cancel it?")
             if answer != QMessageBox.StandardButton.Yes:
                 event.ignore()

@@ -1,9 +1,9 @@
-# Strawalarm
+# Straw Alarm
 
 **Sleep timer and music alarm for Linux — the AIMP "stop after / wake up
 with playlist" feature, for any MPRIS2 player.**
 
-![Strawalarm GUI](docs/screenshot.png)
+![Straw Alarm GUI](docs/screenshot.png)
 
 If you searched for "AIMP alarm on Linux": this is that. Fall asleep to
 your music (playback stops after a timer or a number of tracks, with a
@@ -70,7 +70,7 @@ Debian/Ubuntu: `sudo apt install playerctl python3-pyside6`
 ## Install
 
 From a checkout — puts `strawalarm`/`strawalarm-gui` in `~/.local/bin`
-and adds a launcher ("Strawalarm") to your application menu:
+and adds a launcher ("Straw Alarm") to your application menu:
 
 ```sh
 ./install.sh
@@ -82,7 +82,7 @@ the menu entry).
 
 ## Usage
 
-GUI: launch **Strawalarm** from your app menu, or `strawalarm gui`.
+GUI: launch **Straw Alarm** from your app menu, or `strawalarm gui`.
 
 CLI:
 
@@ -164,7 +164,7 @@ first one's window.
   unaffected.)
 - While the sleep timer plays, only *suspend* is blocked — the screen
   still dims and switches off on your normal schedule. Your desktop's
-  battery/energy widget will truthfully show "Strawalarm is preventing
+  battery/energy widget will truthfully show "Straw Alarm is preventing
   sleep".
 - If the alarm fires the moment the machine resumes (e.g. the RTC wake
   was late or missing), strawalarm waits ~12 s for the audio stack to

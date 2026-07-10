@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "strawalarm"
 version = "0.9.0"
-description = "AIMP-style sleep timer and playlist alarm for MPRIS2 media players (Strawberry, VLC, Elisa, ...)"
+description = "Straw Alarm — sleep timer and music alarm for any MPRIS2 player (fall asleep to music, wake to a playlist; AIMP-style)"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "tengro" }]
