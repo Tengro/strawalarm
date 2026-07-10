@@ -178,6 +178,7 @@ def fpower(monkeypatch):
     monkeypatch.setattr(core.power, "schedule_wakeup", fp.schedule_wakeup)
     monkeypatch.setattr(core.power, "clear_wakeup", fp.clear_wakeup)
     monkeypatch.setattr(core.power, "suspend", fp.suspend)
+    monkeypatch.setattr(core.power, "rtc_is_localtime", lambda: False)
     return fp
 
 

@@ -80,6 +80,12 @@ def fmt_delta(seconds: float) -> str:
 WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
+def crosses_dst(start: dt.datetime, end: dt.datetime) -> bool:
+    """True if a DST transition lies between the two local datetimes —
+    wall-clock arithmetic is then one hour off from elapsed time."""
+    return start.astimezone().utcoffset() != end.astimezone().utcoffset()
+
+
 def next_occurrence(spec: str, weekdays=None,
                     base: dt.datetime | None = None) -> dt.datetime:
     """Next datetime matching the time spec, optionally constrained to a
@@ -448,6 +454,7 @@ class Session:
         self.log(f"Alarm set for {self.wake_at:%a %Y-%m-%d %H:%M:%S} "
                  f"(in {fmt_delta(delta)}) — {what}.")
         self._retry_used = False
+        self._sanity_check_environment()
         if self.wake.wake_system:
             wake_epoch = int(self.wake_at.timestamp() - self.wake.wake_lead)
             if wake_epoch > time.time():
@@ -465,6 +472,23 @@ class Session:
                              "(PowerDevil/rtcwake) — the alarm can't wake "
                              "a suspended machine.")
         self.phase = Phase.WAKE_WAIT
+
+    def _sanity_check_environment(self):
+        """Warn at arm time about setups that silently shift alarms."""
+        if self.wake.wake_system and power.rtc_is_localtime():
+            msg = ("the hardware clock runs in LOCAL time (dual-boot "
+                   "Windows setup?) — the RTC wake may fire hours off. "
+                   "Consider 'timedatectl set-local-rtc 0'.")
+            self.log(f"Warning: {msg}")
+            notify.send("Strawalarm: RTC runs in local time", msg,
+                        critical=True)
+        start = dt.datetime.fromtimestamp(time.time())
+        if crosses_dst(start, self.wake_at):
+            msg = (f"a daylight-saving change happens before "
+                   f"{self.wake_at:%a %H:%M} — double-check the alarm "
+                   "lands on the wall-clock time you expect.")
+            self.log(f"Warning: {msg}")
+            notify.send("Strawalarm: DST change before the alarm", msg)
 
     def _reach_wake_time(self, now):
         if self.player.running():

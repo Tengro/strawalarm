@@ -168,6 +168,18 @@ def clear_wakeup(cookie: int | None):
         subprocess.run(["rtcwake", "-m", "disable"], capture_output=True)
 
 
+def rtc_is_localtime(adjtime_path: str = "/etc/adjtime") -> bool:
+    """True if the hardware clock runs in local time (common on
+    Windows dual-boot). RTC wake alarms are programmed in UTC terms,
+    so a local-time RTC fires hours off."""
+    try:
+        with open(adjtime_path) as f:
+            lines = f.read().splitlines()
+        return len(lines) >= 3 and lines[2].strip() == "LOCAL"
+    except OSError:
+        return False
+
+
 def can_suspend() -> bool:
     out = _run(["busctl", "--system", "call", *LOGIND, "CanSuspend"])
     return out is not None and "yes" in out
