@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0 — 2026-07-10
+
+Roadmap 3.1: native D-Bus transport (risk R3 retired).
+
+- All player control, playlists, logind inhibition, PowerDevil RTC
+  scheduling, suspend and notifications now go over native D-Bus
+  (PyGObject/Gio) — zero subprocess spawns during a full session
+  (audit-hook verified). The sleep inhibitor is a real logind
+  Inhibit() fd now: the kernel releases it if we die, no child
+  process, no PDEATHSIG needed.
+- The old playerctl/busctl/notify-send paths remain as automatic
+  fallback where PyGObject is missing, or forced via
+  STRAWALARM_LEGACY_TRANSPORT=1; both transports pass the full suite.
+- This unblocks Flathub (no host binaries needed inside a sandbox).
+
 ## 0.10.0 — 2026-07-10
 
 Phase 2 of the [roadmap](ROADMAP.md) complete — plus a rebrand.

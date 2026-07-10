@@ -145,7 +145,7 @@ stays simple.
 
 ## Phase 3 — Reach
 
-### 3.1 Native D-Bus port — L
+### 3.1 Native D-Bus port — L ✅ (shipped in v0.11.0)
 Replace playerctl/busctl/notify-send subprocess calls behind the
 existing `Player`/`power` abstractions: QtDBus in GUI/daemon, GLib
 (`gi`) or a vendored minimal client for the CLI (decide by measuring

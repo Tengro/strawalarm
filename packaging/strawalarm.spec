@@ -1,5 +1,5 @@
 Name:           strawalarm
-Version:        0.10.0
+Version:        0.11.0
 Release:        1%{?dist}
 Summary:        Sleep timer and music alarm for MPRIS2 media players
 License:        MIT
@@ -10,7 +10,8 @@ BuildArch:      noarch
 BuildRequires:  python3-devel
 BuildRequires:  systemd-rpm-macros
 
-Requires:       playerctl
+Recommends:     playerctl
+Requires:       python3-gobject
 Requires:       python3-pyside6
 Recommends:     libnotify
 

@@ -55,17 +55,28 @@ without it, the alarm simply resumes playback.
   arm|snooze|cancel|status` control it from any shell — wire those
   into KDE Connect's "Run commands" plugin and you can arm, snooze or
   stop the alarm from your phone (see below)
-- No daemon, no Python dependencies beyond Qt for the GUI. Talks to
-  the player through `playerctl` and `busctl`.
+- **Optional background daemon**: enable `strawalarmd.service` and
+  armed sessions live outside the GUI — they survive closing the
+  window, GUI crashes, and (via systemd restart + the armed-state
+  file) even a crash of the daemon itself. The GUI automatically
+  shows and controls whatever the daemon has armed. Without the
+  daemon everything still works in-process.
+- **Native D-Bus** (PyGObject/Gio) for everything — player control,
+  logind inhibitors, RTC scheduling, notifications; zero subprocess
+  churn during a session. Falls back to `playerctl`/`busctl`
+  automatically where PyGObject is missing
+  (`STRAWALARM_LEGACY_TRANSPORT=1` forces the fallback).
 
 ## Requirements
 
-- Linux with systemd (`busctl`) and [playerctl](https://github.com/altdesktop/playerctl)
+- Linux with systemd; python3-gobject (PyGObject) for native D-Bus —
+  present on virtually every desktop; without it, strawalarm falls
+  back to [playerctl](https://github.com/altdesktop/playerctl) + `busctl`
 - Python ≥ 3.10; PySide6 for the GUI
 - An MPRIS2-capable player
 
-Fedora: `sudo dnf install playerctl python3-pyside6`
-Debian/Ubuntu: `sudo apt install playerctl python3-pyside6`
+Fedora: `sudo dnf install python3-gobject python3-pyside6`
+Debian/Ubuntu: `sudo apt install python3-gi python3-pyside6`
 
 ## Install
 
@@ -76,9 +87,22 @@ and adds a launcher ("Straw Alarm") to your application menu:
 ./install.sh
 ```
 
-Or with pipx: `pipx install "strawalarm[gui] @ git+https://github.com/Tengro/strawalarm"`
-(then copy `data/strawalarm.desktop` and the icon yourself if you want
-the menu entry).
+Or from PyPI: `pipx install "strawalarm[gui]"` (then copy
+`data/strawalarm.desktop` and the icon yourself if you want the menu
+entry). Fedora users can also use COPR:
+`dnf copr enable tengro/strawalarm && dnf install strawalarm`.
+
+### Background daemon (recommended)
+
+```sh
+systemctl --user enable --now strawalarmd.service   # unit installed by install.sh
+```
+
+With the daemon running, arming from the GUI, CLI or phone hands the
+session to `strawalarmd`: close the window, crash the GUI, even
+`kill -9` the daemon — systemd restarts it and it re-arms itself from
+the persisted state. The GUI becomes a live monitor/remote for
+whatever the daemon has armed.
 
 ## Usage
 
