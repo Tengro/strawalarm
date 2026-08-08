@@ -251,11 +251,15 @@ class MainWindow(QMainWindow):
         self.pause_check = QCheckBox("Pause instead of stop (keeps position)")
         form.addRow(self.pause_check)
 
+        # Availability probes must never disable preference widgets: at
+        # login the GUI can start before logind/PowerDevil are reachable,
+        # and a disabled checkbox silently drops the user's choice (this
+        # cost a real morning — see the decision log). Preferences stay
+        # editable; unavailability is reported at arm time.
         self.suspend_check = QCheckBox("Suspend the PC after stopping")
         if not power.can_suspend():
-            self.suspend_check.setEnabled(False)
-            self.suspend_check.setToolTip("logind reports suspend "
-                                          "is unavailable on this system")
+            self.suspend_check.setToolTip("logind reports suspend is "
+                                          "unavailable right now")
         form.addRow(self.suspend_check)
         layout.addWidget(self.sleep_group)
 
@@ -329,19 +333,18 @@ class MainWindow(QMainWindow):
         self.fade_in_check.toggled.connect(self.fade_in_spin.setEnabled)
         form.addRow(self.fade_in_check, self.fade_in_spin)
 
+        # Checked by default and NEVER disabled by an availability probe:
+        # at login the GUI can win the race against PowerDevil's bus
+        # registration, and a disabled checkbox would silently drop the
+        # user's preference (and _save_settings would then persist the
+        # flipped value — a real missed alarm, 2026-08-08). Availability
+        # is a tooltip here and a hard check at arm time.
         self.wake_system_check = QCheckBox("Wake the PC from suspend")
+        self.wake_system_check.setChecked(True)
         self.wake_lead_spin = QSpinBox()
         self.wake_lead_spin.setRange(1, 30)
         self.wake_lead_spin.setValue(3)
         self.wake_lead_spin.setSuffix(" min early")
-        if power.wake_backend():
-            self.wake_system_check.setChecked(True)
-        else:
-            self.wake_system_check.setEnabled(False)
-            self.wake_lead_spin.setEnabled(False)
-            self.wake_system_check.setToolTip(
-                "No wake-from-suspend backend found "
-                "(needs KDE PowerDevil or rtcwake)")
         self.wake_system_check.toggled.connect(self.wake_lead_spin.setEnabled)
         form.addRow(self.wake_system_check, self.wake_lead_spin)
 
@@ -601,9 +604,8 @@ class MainWindow(QMainWindow):
                                                type=bool))
         self.fade_out_spin.setValue(s.value("sleep/fade", 30, type=int))
         self.pause_check.setChecked(s.value("sleep/pause", False, type=bool))
-        if self.suspend_check.isEnabled():
-            self.suspend_check.setChecked(s.value("sleep/suspend", False,
-                                                  type=bool))
+        self.suspend_check.setChecked(s.value("sleep/suspend", False,
+                                              type=bool))
         self.wake_group.setChecked(s.value("wake/enabled", True, type=bool))
         if s.value("wake/mode", "at", type=str) == "after":
             self.radio_wake_after.setChecked(True)
@@ -625,9 +627,8 @@ class MainWindow(QMainWindow):
         self.fade_in_check.setChecked(s.value("wake/fade_on", True,
                                               type=bool))
         self.fade_in_spin.setValue(s.value("wake/fade", 30, type=int))
-        if self.wake_system_check.isEnabled():
-            self.wake_system_check.setChecked(
-                s.value("wake/wake_system", True, type=bool))
+        self.wake_system_check.setChecked(
+            s.value("wake/wake_system", True, type=bool))
         self.wake_lead_spin.setValue(s.value("wake/lead", 3, type=int))
         self.keep_awake_spin.setValue(s.value("wake/keep_awake", 30,
                                               type=int))
@@ -658,16 +659,16 @@ class MainWindow(QMainWindow):
         if self.player_combo.count() == 0:
             self.phase_label.setText("No MPRIS players running — "
                                      "start your music player and refresh.")
-        # Wake backend availability can change at runtime (updates,
-        # setcap fixes) — re-evaluate on every refresh.
+        # Availability is advisory only (tooltip); the checkbox always
+        # stays enabled so a login-time probe race can't silently flip
+        # the preference off. Arming re-checks and warns for real.
         wake_ok = power.wake_backend() is not None
-        self.wake_system_check.setEnabled(wake_ok)
-        self.wake_lead_spin.setEnabled(
-            wake_ok and self.wake_system_check.isChecked())
+        self.wake_lead_spin.setEnabled(self.wake_system_check.isChecked())
         self.wake_system_check.setToolTip(
             "" if wake_ok else
-            "No wake-from-suspend backend found (needs KDE PowerDevil "
-            "with CAP_WAKE_ALARM, or root rtcwake) — see README")
+            "No wake-from-suspend backend reachable right now (needs KDE "
+            "PowerDevil with CAP_WAKE_ALARM, or root rtcwake) — you'll be "
+            "warned at arm time if it's still unavailable")
         self.refresh_playlists()
 
     def current_player(self):

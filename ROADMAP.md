@@ -213,6 +213,7 @@ credibility artifact).
 | Recurrence only for alarm-only sessions | Auto-repeating a sleep timer would stop music daily | Profiles (3.3) |
 | GUI-owned engine, D-Bus remote as thin layer | Right size for v0.x; blueprint for daemon | 2.3 |
 | One armed session at a time | Multi-alarm needs daemon-grade state | 3.3 |
+| Probes never disable preference widgets; suspend refused if RTC wake failed | Login race GUI-vs-PowerDevil silently flipped wake_system off → missed alarm 2026-08-08 | — |
 
 ## Conventions
 

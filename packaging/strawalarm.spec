@@ -1,5 +1,5 @@
 Name:           strawalarm
-Version:        0.11.0
+Version:        0.11.1
 Release:        1%{?dist}
 Summary:        Sleep timer and music alarm for MPRIS2 media players
 License:        MIT

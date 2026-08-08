@@ -197,6 +197,18 @@ class Session:
                         "If the PC suspends, the alarm will not wake it. "
                         "See the README for the CAP_WAKE_ALARM fix.",
                         critical=True)
+        if self.sleep and self.sleep.suspend_after and self.wake \
+                and not self.wake.wake_system:
+            # A spec that suspends the PC but never wakes it is almost
+            # certainly a mistake (a GUI probe race once produced exactly
+            # this and cost a morning) — say so while the user is awake.
+            msg = ("this session will SUSPEND the PC after the music but "
+                   "wake-from-suspend is turned off — the alarm cannot "
+                   "wake the machine. Enable 'Wake the PC from suspend' "
+                   "unless this is intentional.")
+            self.log(f"Warning: {msg}")
+            notify.send("Straw Alarm: suspend without wake-up", msg,
+                        critical=True)
         if self.player.running():
             self._desktop_entry = self.player.desktop_entry()
             self._initial_volume = self.player.volume()
@@ -444,6 +456,18 @@ class Session:
             self.phase = Phase.DONE
             state.clear()
         if self.sleep and self.sleep.suspend_after:
+            if self.wake and self.wake.wake_system \
+                    and not self._wake_scheduled:
+                # Suspending now would guarantee a missed alarm — the
+                # machine stays awake instead (honest failure).
+                msg = ("NOT suspending: the wake-up alarm could not be "
+                       "programmed, and a machine that can't wake itself "
+                       "must not be put to sleep. The alarm will still "
+                       "fire with the PC awake.")
+                self.log(msg)
+                notify.send("Straw Alarm refused to suspend", msg,
+                            critical=True)
+                return
             self.log("Suspending the machine now.")
             power.suspend()
 

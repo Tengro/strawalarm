@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.1 — 2026-08-08
+
+Post-mortem release for a missed alarm (2026-08-08, the third
+"morning incident" — this one was our own bug).
+
+- **Root cause**: with autostart enabled, the GUI can start at login
+  before PowerDevil registers on the bus. The availability probe then
+  disabled the "Wake the PC from suspend" checkbox, the settings
+  restore skipped disabled widgets (dropping the saved preference),
+  and arming saved the flipped-off value back — so the session
+  suspended the PC with no RTC wake and, believing the user opted
+  out, never warned.
+- Availability probes no longer disable preference checkboxes;
+  preferences always restore; unavailability is a tooltip plus a
+  hard arm-time warning.
+- New engine guards: arming a suspend-after spec with wake-from-suspend
+  off warns critically ("suspend without wake-up"); and if the RTC wake
+  fails to program, the session now **refuses to suspend** — the
+  machine stays awake and the alarm still fires.
+- 6 new regression tests (123 total).
+
 ## 0.11.0 — 2026-07-10
 
 Roadmap 3.1: native D-Bus transport (risk R3 retired).
